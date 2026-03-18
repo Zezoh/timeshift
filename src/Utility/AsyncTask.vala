@@ -285,12 +285,12 @@ public abstract class AsyncTask : GLib.Object{
 		
 		// finish() gets called by 2 threads but should be executed only once
 		finish_mutex.lock();
-		if (finish_called) {
+		try {
+			if (finish_called) { return; }
+			finish_called = true;
+		} finally {
 			finish_mutex.unlock();
-			return;
 		}
-		finish_called = true;
-		finish_mutex.unlock();
 		
 		log_debug("AsyncTask: finish(): enter");
 		

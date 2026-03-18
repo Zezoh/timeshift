@@ -2661,6 +2661,8 @@ public class Main : GLib.Object{
 				sh += "%s mkinitcpio -p /etc/mkinitcpio.d/*.preset\n".printf(chroot);
 			}
 			else if (target_distro.dist_type == "alpine"){
+				// Alpine Linux uses mkinitfs (from the mkinitfs package) to regenerate initramfs.
+				// Running without arguments regenerates for all installed kernels using /etc/mkinitfs/mkinitfs.conf.
 				sh += "%s mkinitfs \n".printf(chroot);
 			}
 			else{

@@ -189,7 +189,7 @@ public class Subvolume : GLib.Object{
 					log_debug("Still waiting for btrfs to finish deleting... %s".printf(std_err));
 					sleep(1000);
 					if (++retries >= BTRFS_OP_MAX_RETRIES) {
-						log_error("Timeout waiting for btrfs subvolume sync after %d retries: %s".printf(retries, std_err));
+						log_error("Timeout waiting for btrfs subvolume sync after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
 						break;
 					}
 				}
@@ -200,7 +200,7 @@ public class Subvolume : GLib.Object{
                     log_debug("Still rescanning quotas... %s".printf(std_err));
                     sleep(1000);
                     if (++retries >= BTRFS_OP_MAX_RETRIES) {
-						log_error("Timeout waiting for btrfs quota rescan after %d retries: %s".printf(retries, std_err));
+						log_error("Timeout waiting for btrfs quota rescan after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
 						break;
 					}
                 }
@@ -236,7 +236,7 @@ public class Subvolume : GLib.Object{
                     log_debug("Still rescanning quotas (post)... %s".printf(std_err));
                     sleep(1000);
                     if (++retries >= BTRFS_OP_MAX_RETRIES) {
-						log_error("Timeout waiting for btrfs quota rescan (post) after %d retries: %s".printf(retries, std_err));
+						log_error("Timeout waiting for btrfs quota rescan (post) after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
 						break;
 					}
                 }
@@ -247,7 +247,7 @@ public class Subvolume : GLib.Object{
                     log_debug("Still syncing (post)... %s".printf(std_err));
                     sleep(1000);
                     if (++retries >= BTRFS_OP_MAX_RETRIES) {
-						log_error("Timeout waiting for btrfs subvolume sync (post) after %d retries: %s".printf(retries, std_err));
+						log_error("Timeout waiting for btrfs subvolume sync (post) after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
 						break;
 					}
                 }
