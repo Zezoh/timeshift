@@ -37,8 +37,12 @@ public abstract class AsyncTask : GLib.Object{
 	private DataInputStream dis_err = null;
 	protected DataOutputStream dos_log = null;
 
-	private bool stdout_is_open = false;
-	private bool stderr_is_open = false;
+	// Counts streams (stdout + stderr = 2) still open.
+	// Using an atomic int avoids a write-visibility race on ARM64's weak memory model:
+	// the old pair of plain booleans let both threads see each other's flag as still
+	// "true" after both had already set it to "false", so finish() was never called
+	// and the task hung forever after rsync finished.
+	private int open_stream_count = 0;
 
 	protected Pid child_pid = 0;
 	private int input_fd = -1;
@@ -123,6 +127,10 @@ public abstract class AsyncTask : GLib.Object{
 
 		prg_count = 0;
 
+		// Reset the stream counter.  Must be set before the reader threads start
+		// so they always see 2 on entry and never underflow to a false 0.
+		GLib.AtomicInt.set(ref open_stream_count, 2);
+
 		string[] spawn_args = new string[1];
 		spawn_args[0] = script_file;
 		
@@ -185,8 +193,6 @@ public abstract class AsyncTask : GLib.Object{
 
 	private void read_stdout() {
 		try {
-			stdout_is_open = true;
-			
 			out_line = dis_out.read_line (null);
 			while (out_line != null) {
 				//log_msg("O: " + out_line);
@@ -202,8 +208,6 @@ public abstract class AsyncTask : GLib.Object{
 			log_error (e.message);
 		}
 		finally {
-			stdout_is_open = false;
-
 			// dispose stdout
 			try {
 				if (dis_out != null) {
@@ -213,8 +217,11 @@ public abstract class AsyncTask : GLib.Object{
 			catch (GLib.Error ignored) {}
 			dis_out = null;
 
-			// check if complete
-			if (!stdout_is_open && !stderr_is_open){
+			// Atomically decrement the open-stream counter.  When it reaches 0 both
+			// stdout and stderr are closed and it is safe (and necessary) to call
+			// finish().  The atomic operation provides the memory barrier that plain
+			// bool flags lack on ARM64, which was the root cause of the hang on Pi 5.
+			if (GLib.AtomicInt.dec_and_test(ref open_stream_count)) {
 				finish();
 			}
 		}
@@ -222,8 +229,6 @@ public abstract class AsyncTask : GLib.Object{
 	
 	private void read_stderr() {
 		try {
-			stderr_is_open = true;
-			
 			err_line = dis_err.read_line (null);
 			while (err_line != null) {
 				if (err_line.length > 0){
@@ -238,8 +243,6 @@ public abstract class AsyncTask : GLib.Object{
 			log_error (e.message);
 		}
 		finally {
-			stderr_is_open = false;
-
 			// dispose stderr
 			try {
 				if (dis_err != null) {
@@ -249,8 +252,8 @@ public abstract class AsyncTask : GLib.Object{
 			catch (GLib.Error ignored) {}
 			dis_err = null;
 
-			// check if complete
-			if (!stdout_is_open && !stderr_is_open){
+			// Same atomic decrement as in read_stdout – see that comment.
+			if (GLib.AtomicInt.dec_and_test(ref open_stream_count)) {
 				finish();
 			}
 		}
