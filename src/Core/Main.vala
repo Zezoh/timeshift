@@ -1709,7 +1709,7 @@ public class Main : GLib.Object{
 		//var task = new RsyncTask();
 		//task.parse_log(log_file);
 
-		int64 fcount = file_line_count(log_file);
+		int64 fcount = file_line_count(log_file) ?? 0;
 
 		// write control file (final - with file count after parsing log)
 		var snapshot = Snapshot.write_control_file(
