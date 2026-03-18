@@ -391,7 +391,9 @@ public abstract class AsyncTask : GLib.Object{
 		get {
 			double elapsed = timerOffset;
 			if(this.status != AppStatus.PAUSED) {
-				elapsed += TeeJee.System.timer_elapsed(timer);
+				// Use stop=false so we only READ the elapsed time without stopping the timer.
+				// The timer must keep running for accurate remaining-time calculation.
+				elapsed += TeeJee.System.timer_elapsed(timer, false);
 			}
 			return elapsed;
 		}

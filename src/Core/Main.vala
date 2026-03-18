@@ -2813,10 +2813,18 @@ public class Main : GLib.Object{
 
 		progress_text = _("Parsing log file...");
 		log_msg(progress_text);
-		var task = new RsyncTask();
-		task.parse_log(restore_log_file);
+		var log_task = new RsyncTask();
+		log_task.parse_log(restore_log_file);
 
 		// execute sh_finish --------------------
+
+		if (reinstall_grub2 || update_initramfs || update_grub){
+			progress_text = _("Updating bootloader configuration...");
+		}
+		else{
+			progress_text = _("Finalizing restore...");
+		}
+		log_msg(progress_text);
 
 		log_debug("executing sh_finish: ");
 		log_debug(sh_finish);
@@ -2904,13 +2912,16 @@ public class Main : GLib.Object{
 
 		progress_text = _("Parsing log file...");
 		log_msg(progress_text);
-		var task = new RsyncTask();
-		task.parse_log(restore_log_file);
+		var log_task = new RsyncTask();
+		log_task.parse_log(restore_log_file);
 
 		// execute sh_finish ------------
 
 		if (reinstall_grub2 || update_initramfs || update_grub){
 			progress_text = _("Updating bootloader configuration...");
+		}
+		else{
+			progress_text = _("Finalizing restore...");
 		}
 
 		log_debug("executing sh_finish: ");
