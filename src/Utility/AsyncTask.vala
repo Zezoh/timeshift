@@ -318,12 +318,23 @@ public abstract class AsyncTask : GLib.Object{
 		out_line = "";
 
 		timer.stop();
-		
-		finish_task();
 
+		// Mark the task as finished BEFORE calling finish_task().
+		// finish_task() in RsyncTask writes the rsync-log-changes file via synchronous
+		// GIO I/O.  For a first-ever backup (100k+ files) the log string can be 10-15 MB
+		// and the write to a slow USB drive may take 30-60+ seconds.  If finish_task()
+		// ran first, status would stay RUNNING for the entire duration of that write,
+		// causing both the console wait-loop and the GTK progress dialog to appear
+		// permanently hung even though rsync itself had already finished.
+		// Setting status = FINISHED here lets the wait-loop (and the GTK dialog) exit
+		// immediately; finish_task() then completes in the background thread.
+		// Nothing that executes after the wait-loop (file_line_count, write_control_file,
+		// etc.) depends on the log-changes file, so this reordering is safe.
 		if ((status != AppStatus.CANCELLED) && (status != AppStatus.PASSWORD_REQUIRED)) {
 			status = AppStatus.FINISHED;
 		}
+
+		finish_task();
 
 		//dir_delete(working_dir);
 		
