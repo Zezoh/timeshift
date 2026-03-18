@@ -2660,6 +2660,9 @@ public class Main : GLib.Object{
 			else if (target_distro.dist_type == "arch"){
 				sh += "%s mkinitcpio -p /etc/mkinitcpio.d/*.preset\n".printf(chroot);
 			}
+			else if (target_distro.dist_type == "alpine"){
+				sh += "%s mkinitfs \n".printf(chroot);
+			}
 			else{
 				sh += "%s update-initramfs -u -k all \n".printf(chroot);
 			}
@@ -2674,7 +2677,10 @@ public class Main : GLib.Object{
 			if (target_distro.dist_type == "redhat"){
 				sh += "%s grub2-mkconfig -o /boot/grub2/grub.cfg \n".printf(chroot);
 			}
-			if (target_distro.dist_type == "arch"){
+			else if (target_distro.dist_type == "arch"){
+				sh += "%s grub-mkconfig -o /boot/grub/grub.cfg \n".printf(chroot);
+			}
+			else if (target_distro.dist_type == "alpine"){
 				sh += "%s grub-mkconfig -o /boot/grub/grub.cfg \n".printf(chroot);
 			}
 			else{

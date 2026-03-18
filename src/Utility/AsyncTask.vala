@@ -45,6 +45,7 @@ public abstract class AsyncTask : GLib.Object{
 	private int output_fd = -1;
 	private int error_fd = -1;
 	private bool finish_called = false;
+	private GLib.Mutex finish_mutex;
 
 	protected string script_file = "";
 	protected string working_dir = "";
@@ -99,6 +100,7 @@ public abstract class AsyncTask : GLib.Object{
 		script_file = path_combine(working_dir, "script.sh");
 
         status_line_mutex = GLib.Mutex();
+        finish_mutex = GLib.Mutex();
 
 		dir_create(working_dir);
 	}
@@ -175,7 +177,7 @@ public abstract class AsyncTask : GLib.Object{
 			log_error ("AsyncTask.begin()");
 			log_error(e.message);
 			has_started = false;
-			//status = AppStatus.FINISHED;
+			status = AppStatus.FINISHED;
 		}
 
 		return has_started;
@@ -194,7 +196,12 @@ public abstract class AsyncTask : GLib.Object{
 				}
 				out_line = dis_out.read_line (null); //read next
 			}
-
+		}
+		catch (Error e) {
+			log_error ("AsyncTask.read_stdout()");
+			log_error (e.message);
+		}
+		finally {
 			stdout_is_open = false;
 
 			// dispose stdout
@@ -211,10 +218,6 @@ public abstract class AsyncTask : GLib.Object{
 				finish();
 			}
 		}
-		catch (Error e) {
-			log_error ("AsyncTask.read_stdout()");
-			log_error (e.message);
-		}
 	}
 	
 	private void read_stderr() {
@@ -229,7 +232,12 @@ public abstract class AsyncTask : GLib.Object{
 				}
 				err_line = dis_err.read_line (null); //read next
 			}
-
+		}
+		catch (Error e) {
+			log_error ("AsyncTask.read_stderr()");
+			log_error (e.message);
+		}
+		finally {
 			stderr_is_open = false;
 
 			// dispose stderr
@@ -245,10 +253,6 @@ public abstract class AsyncTask : GLib.Object{
 			if (!stdout_is_open && !stderr_is_open){
 				finish();
 			}
-		}
-		catch (Error e) {
-			log_error ("AsyncTask.read_stderr()");
-			log_error (e.message);
 		}
 	}
 
@@ -280,8 +284,13 @@ public abstract class AsyncTask : GLib.Object{
 	private void finish(){
 		
 		// finish() gets called by 2 threads but should be executed only once
-		if (finish_called) { return; }
+		finish_mutex.lock();
+		if (finish_called) {
+			finish_mutex.unlock();
+			return;
+		}
 		finish_called = true;
+		finish_mutex.unlock();
 		
 		log_debug("AsyncTask: finish(): enter");
 		

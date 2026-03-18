@@ -163,6 +163,9 @@ public class LinuxDistro : GLib.Object{
 			else if (dist_id.down().contains("ubuntu") || dist_id.down().contains("debian")){
 				return "debian";
 			}
+			else if (dist_id.down() == "alpine"){
+				return "alpine";
+			}
 			else{
 				return "";
 			}
