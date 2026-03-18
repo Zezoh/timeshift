@@ -1652,7 +1652,15 @@ public class Main : GLib.Object{
 		task.link_from_path = link_from_path;
 		task.exclude_from_file = exclude_from_file;
 		task.rsync_log_file = log_file;
-		task.prg_count_total = Main.first_snapshot_count;
+		if (Main.first_snapshot_count > 0){
+			task.prg_count_total = Main.first_snapshot_count;
+		}
+		else{
+			// Fallback: estimation was not available; use a reasonable default so the
+			// progress bar and remaining-time display are not permanently stuck at 0%.
+			// 500000 is the same fallback used by the restore path (restore_other_gui).
+			task.prg_count_total = 500000;
+		}
 
 		task.relative = true;
 		task.verbose = true;
@@ -4041,7 +4049,10 @@ public class Main : GLib.Object{
 
 		log_debug("estimate_system_size()");
 		
-		if (Main.first_snapshot_size > 0){
+		// Only skip estimation when BOTH size and count were previously determined.
+		// If count is 0 (e.g. loaded from an older config that didn't save it, or a
+		// previous dry-run failed), fall through and re-run the dry-run rsync once.
+		if (Main.first_snapshot_size > 0 && Main.first_snapshot_count > 0){
 			return Main.first_snapshot_size;
 		}
 		else if (live_system()){
@@ -4080,6 +4091,12 @@ public class Main : GLib.Object{
 		Main.first_snapshot_count = task.count_created;
 		if ((task.total_size == 0) && (sys_root != null)) {
 			Main.first_snapshot_size = sys_root.used_bytes;
+			// When rsync reports no total_size the dry-run did not complete normally.
+			// Use a reasonable fallback for count so subsequent backups don't endlessly
+			// re-trigger estimation (the early-return guard above requires count > 0).
+			if (Main.first_snapshot_count == 0){
+				Main.first_snapshot_count = 500000;
+			}
 		}
 
 		save_app_config();
