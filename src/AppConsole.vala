@@ -957,6 +957,15 @@ public class AppConsole : GLib.Object {
 
 	private void select_grub_device(){
 
+		// Alpine Linux (e.g., Raspberry Pi) does not use GRUB bootloader at all.
+		// Skip all GRUB selection/prompts to avoid failures and hangs.
+		if (App.snapshot_to_restore != null &&
+			App.snapshot_to_restore.distro.dist_type == "alpine"){
+			App.reinstall_grub2 = false;
+			App.cmd_skip_grub = true;
+			return;
+		}
+
 		string grub_device_default = App.grub_device;
 		bool grub_reinstall_default = App.reinstall_grub2;
 		App.reinstall_grub2 = false;

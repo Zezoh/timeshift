@@ -2275,7 +2275,14 @@ public class Main : GLib.Object{
 			grub_device = grub_dev.device;
 		}
 
-		if (mirror_system){
+		// Alpine Linux (e.g., Raspberry Pi) uses the RPi/U-Boot firmware and
+		// does not use GRUB at all; skip every GRUB step to avoid failures.
+		if (snapshot_to_restore.distro.dist_type == "alpine"){
+			reinstall_grub2 = false;
+			update_initramfs = mirror_system; // regenerate initramfs only when cloning
+			update_grub = false;
+		}
+		else if (mirror_system){
 			// bootloader must be re-installed
 			reinstall_grub2 = true;
 			update_initramfs = true;
@@ -2683,7 +2690,8 @@ public class Main : GLib.Object{
 				sh += "%s grub-mkconfig -o /boot/grub/grub.cfg \n".printf(chroot);
 			}
 			else if (target_distro.dist_type == "alpine"){
-				sh += "%s grub-mkconfig -o /boot/grub/grub.cfg \n".printf(chroot);
+				// Alpine Linux (Raspberry Pi) does not use GRUB; skip boot menu update
+				sh += "echo 'Alpine Linux: skipping GRUB menu update (not used on this platform)' \n";
 			}
 			else{
 				sh += "%s update-grub \n".printf(chroot);
