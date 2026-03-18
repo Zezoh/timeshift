@@ -2275,11 +2275,18 @@ public class Main : GLib.Object{
 			grub_device = grub_dev.device;
 		}
 
+		// When restoring a snapshot, use that snapshot's recorded distro.
+		// When cloning the live system (mirror_system=true), snapshot_to_restore
+		// is null, so fall back to the current running system's distro.
+		string op_dist_type = (snapshot_to_restore != null)
+			? snapshot_to_restore.distro.dist_type
+			: current_distro.dist_type;
+
 		// Alpine Linux (e.g., Raspberry Pi) uses the RPi/U-Boot firmware and
 		// does not use GRUB at all; skip every GRUB step to avoid failures.
-		if (snapshot_to_restore.distro.dist_type == "alpine"){
+		if (op_dist_type == "alpine"){
 			reinstall_grub2 = false;
-			update_initramfs = mirror_system; // regenerate initramfs only when cloning
+			update_initramfs = mirror_system; // run mkinitfs only when cloning
 			update_grub = false;
 		}
 		else if (mirror_system){
@@ -2598,6 +2605,13 @@ public class Main : GLib.Object{
 		log_debug("grub_device=%s".printf((grub_device == null) ? "null" : grub_device));
 
 		var target_distro = LinuxDistro.get_dist_info(restore_target_path);
+		// When cloning (mirror_system) to a freshly-formatted target disk, the target
+		// may not yet have an OS installed, so the detected distro would be empty.
+		// Fall back to the current running system's distro so that the correct
+		// post-restore commands (e.g. mkinitfs for Alpine) are used.
+		if (mirror_system && target_distro.dist_type.length == 0) {
+			target_distro = current_distro;
+		}
 		
 		sh = "";
 
