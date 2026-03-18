@@ -292,7 +292,7 @@ public class CronTab : GLib.Object {
 		string file_path = "/etc/cron.%s/%s".printf(cron_dir_type, file_name.replace(".","-")); // dot is not allowed in file name
 
 		string sh = "";
-		sh += "SHELL=/bin/bash" + "\n";
+		sh += "SHELL=/bin/sh" + "\n";
 		sh += "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin" + "\n";
 		if (stop_cron_emails){
 			sh += "MAILTO=\"\"" + "\n";

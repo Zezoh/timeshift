@@ -102,7 +102,7 @@ namespace TeeJee.ProcessHelper{
 		
 		if (run_as_admin){
 			
-			var script_admin = "#!/usr/bin/env bash\n";
+			var script_admin = "#!/bin/sh\n";
 			script_admin += "pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY";
 			script_admin += " '%s'".printf(escape_single_quote(sh_file));
 			
@@ -231,7 +231,7 @@ namespace TeeJee.ProcessHelper{
 		 * Returns the script file path */
 
 		var script = new StringBuilder();
-		script.append ("#!/usr/bin/env bash\n");
+		script.append ("#!/bin/sh\n");
 		script.append ("\n");
 		if (force_locale){
 			script.append("LANG=C\n");
