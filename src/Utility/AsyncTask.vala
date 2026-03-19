@@ -195,25 +195,12 @@ public abstract class AsyncTask : GLib.Object{
 				out_line = dis_out.read_line (null); //read next
 			}
 
-			stdout_is_open = false;
-
-			// dispose stdout
-			try {
-				if (dis_out != null) {
-					dis_out.close();
-				}
-			}
-			catch (GLib.Error ignored) {}
-			dis_out = null;
-
-			// check if complete
-			if (!stdout_is_open && !stderr_is_open){
-				finish();
-			}
+			finalize_stdout_reader();
 		}
 		catch (Error e) {
 			log_error ("AsyncTask.read_stdout()");
 			log_error (e.message);
+			finalize_stdout_reader();
 		}
 	}
 	
@@ -230,25 +217,48 @@ public abstract class AsyncTask : GLib.Object{
 				err_line = dis_err.read_line (null); //read next
 			}
 
-			stderr_is_open = false;
-
-			// dispose stderr
-			try {
-				if (dis_err != null) {
-					dis_err.close();
-				}
-			}
-			catch (GLib.Error ignored) {}
-			dis_err = null;
-
-			// check if complete
-			if (!stdout_is_open && !stderr_is_open){
-				finish();
-			}
+			finalize_stderr_reader();
 		}
 		catch (Error e) {
 			log_error ("AsyncTask.read_stderr()");
 			log_error (e.message);
+			finalize_stderr_reader();
+		}
+	}
+
+	private void finalize_stdout_reader(){
+		stdout_is_open = false;
+
+		// dispose stdout
+		try {
+			if (dis_out != null) {
+				dis_out.close();
+			}
+		}
+		catch (GLib.Error ignored) {}
+		dis_out = null;
+
+		// check if complete
+		if (!stdout_is_open && !stderr_is_open){
+			finish();
+		}
+	}
+
+	private void finalize_stderr_reader(){
+		stderr_is_open = false;
+
+		// dispose stderr
+		try {
+			if (dis_err != null) {
+				dis_err.close();
+			}
+		}
+		catch (GLib.Error ignored) {}
+		dis_err = null;
+
+		// check if complete
+		if (!stdout_is_open && !stderr_is_open){
+			finish();
 		}
 	}
 
