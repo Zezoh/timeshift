@@ -185,6 +185,10 @@ public class Main : GLib.Object{
 
 	public Main(string[] args, bool gui_mode){
 		
+		// Work around pidfd wait warnings seen on some Alpine/GLib combinations
+		// when child processes are spawned frequently.
+		Environment.set_variable("G_SPAWN_DISABLE_PIDFD", "1", true);
+
 		this.mount_point_app = "/run/timeshift/%d".printf(Posix.getpid());
 		dir_create(this.mount_point_app);
 		
