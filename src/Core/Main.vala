@@ -1681,7 +1681,7 @@ public class Main : GLib.Object{
 		stdout.printf("\r");
 		stdout.flush();
 
-		if (task.total_size == 0){
+		if (task.exit_code != 0){
 			log_error(_("rsync returned an error"));
 			log_error(_("Failed to create new snapshot"));
 			return null;
@@ -4503,6 +4503,5 @@ public class Main : GLib.Object{
 		}
 	}
 }
-
 
 

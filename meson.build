@@ -51,3 +51,8 @@ install_data(
   sources: 'debian/com.linuxmint.timeshift.metainfo.xml',
   install_dir: join_paths(get_option('datadir'), 'metainfo')
 )
+
+install_data(
+  sources: 'icons/timeshift.png',
+  install_dir: join_paths(get_option('datadir'), 'pixmaps')
+)
