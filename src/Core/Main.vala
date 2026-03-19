@@ -1689,11 +1689,16 @@ public class Main : GLib.Object{
 
 		string initial_tags = (tag == "ondemand") ? "" : tag;
 		
-		// write control file
-		// this step is redundant - just in case if app crashes while parsing log file in next step
-		//Snapshot.write_control_file(
-		//	snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
-		//	initial_tags, cmd_comments, 0, false, false, repo);
+		// write preliminary control file immediately so snapshot stays discoverable
+		// even if app exits before final metadata update.
+		var snapshot_pre = Snapshot.write_control_file(
+			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
+			initial_tags, cmd_comments, 0, false, false, repo, true);
+		if (!snapshot_pre.valid){
+			log_error(_("Failed to create control file"));
+			log_error(_("Failed to create new snapshot"));
+			return null;
+		}
 
 		// parse log file
 		//progress_text = _("Parsing log file...");
