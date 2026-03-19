@@ -1652,7 +1652,15 @@ public class Main : GLib.Object{
 		task.link_from_path = link_from_path;
 		task.exclude_from_file = exclude_from_file;
 		task.rsync_log_file = log_file;
-		task.prg_count_total = Main.first_snapshot_count;
+		if (Main.first_snapshot_count > 0){
+			task.prg_count_total = Main.first_snapshot_count;
+		}
+		else{
+			// Fallback: estimation was not available; use a reasonable default so the
+			// progress bar and remaining-time display are not permanently stuck at 0%.
+			// 500000 is the same fallback used by the restore path (restore_other_gui).
+			task.prg_count_total = 500000;
+		}
 
 		task.relative = true;
 		task.verbose = true;
@@ -1681,8 +1689,16 @@ public class Main : GLib.Object{
 		stdout.printf("\r");
 		stdout.flush();
 
-		if (task.total_size == 0){
-			log_error(_("rsync returned an error"));
+		// Check rsync exit code: 0 = success, 24 = some files vanished during
+		// transfer (normal for live system backups where processes create/delete
+		// files while rsync runs).  The old check (total_size == 0) relied on
+		// parsing a regex from rsync's stdout which can silently fail on Alpine
+		// Linux / musl / ARM64 due to locale differences or memory-ordering of
+		// the plain int64 field, causing info.json to never be written.
+		log_debug("rsync: exit_code=%d, total_size=%lld".printf(task.exit_code, task.total_size));
+
+		if (task.exit_code != 0 && task.exit_code != 24){
+			log_error(_("rsync returned an error") + " (exit code: %d)".printf(task.exit_code));
 			log_error(_("Failed to create new snapshot"));
 			return null;
 		}
@@ -1701,12 +1717,17 @@ public class Main : GLib.Object{
 		//var task = new RsyncTask();
 		//task.parse_log(log_file);
 
-		int64 fcount = file_line_count(log_file);
+		int64 fcount = file_line_count(log_file) ?? 0;
 
 		// write control file (final - with file count after parsing log)
 		var snapshot = Snapshot.write_control_file(
 			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
 			initial_tags, cmd_comments, fcount, false, false, repo);
+
+		if (snapshot == null){
+			log_error(_("Failed to create new snapshot"));
+			return null;
+		}
 
 		set_tags(snapshot); // set_tags() will update the control file
 
@@ -1794,6 +1815,11 @@ public class Main : GLib.Object{
 		var snapshot = Snapshot.write_control_file(
 			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
 			initial_tags, cmd_comments, 0, true, false, repo);
+
+		if (snapshot == null){
+			log_error(_("Failed to create new snapshot"));
+			return null;
+		}
 
 		// write subvolume info
 		foreach(var subvol in sys_subvolumes.values){
@@ -2275,7 +2301,22 @@ public class Main : GLib.Object{
 			grub_device = grub_dev.device;
 		}
 
-		if (mirror_system){
+		// When restoring a snapshot, use that snapshot's recorded distro.
+		// When cloning the live system (mirror_system=true), snapshot_to_restore
+		// is null, so fall back to the current running system's distro.
+		string op_dist_type = (snapshot_to_restore != null)
+			? snapshot_to_restore.distro.dist_type
+			: current_distro.dist_type;
+
+		// Alpine Linux (e.g., Raspberry Pi) uses the RPi/U-Boot firmware and
+		// does not use GRUB at all; skip every GRUB step to avoid failures.
+		// Always update initramfs (mkinitfs) since Alpine relies on it for boot.
+		if (op_dist_type == "alpine"){
+			reinstall_grub2 = false;
+			update_initramfs = true;
+			update_grub = false;
+		}
+		else if (mirror_system){
 			// bootloader must be re-installed
 			reinstall_grub2 = true;
 			update_initramfs = true;
@@ -2552,7 +2593,7 @@ public class Main : GLib.Object{
 			sh += "echo '" + _("System will reboot after files are restored") + "'\n";
 		}
 		sh += "echo ''\n";
-		sh += "sleep 3s\n";
+		sh += "sleep 3\n";
 
 		// run rsync ---------------------------------------
 
@@ -2591,6 +2632,13 @@ public class Main : GLib.Object{
 		log_debug("grub_device=%s".printf((grub_device == null) ? "null" : grub_device));
 
 		var target_distro = LinuxDistro.get_dist_info(restore_target_path);
+		// When cloning (mirror_system) to a freshly-formatted target disk, the target
+		// may not yet have an OS installed, so the detected distro would be empty.
+		// Fall back to the current running system's distro so that the correct
+		// post-restore commands (e.g. mkinitfs for Alpine) are used.
+		if (mirror_system && target_distro.dist_type.length == 0) {
+			target_distro = current_distro;
+		}
 		
 		sh = "";
 
@@ -2660,6 +2708,11 @@ public class Main : GLib.Object{
 			else if (target_distro.dist_type == "arch"){
 				sh += "%s mkinitcpio -p /etc/mkinitcpio.d/*.preset\n".printf(chroot);
 			}
+			else if (target_distro.dist_type == "alpine"){
+				// Alpine Linux uses mkinitfs (from the mkinitfs package) to regenerate initramfs.
+				// Running without arguments regenerates for all installed kernels using /etc/mkinitfs/mkinitfs.conf.
+				sh += "%s mkinitfs \n".printf(chroot);
+			}
 			else{
 				sh += "%s update-initramfs -u -k all \n".printf(chroot);
 			}
@@ -2674,8 +2727,12 @@ public class Main : GLib.Object{
 			if (target_distro.dist_type == "redhat"){
 				sh += "%s grub2-mkconfig -o /boot/grub2/grub.cfg \n".printf(chroot);
 			}
-			if (target_distro.dist_type == "arch"){
+			else if (target_distro.dist_type == "arch"){
 				sh += "%s grub-mkconfig -o /boot/grub/grub.cfg \n".printf(chroot);
+			}
+			else if (target_distro.dist_type == "alpine"){
+				// Alpine Linux (Raspberry Pi) does not use GRUB; skip boot menu update
+				sh += "echo 'Alpine Linux: skipping GRUB menu update (not used on this platform)' \n";
 			}
 			else{
 				sh += "%s update-grub \n".printf(chroot);
@@ -2687,7 +2744,7 @@ public class Main : GLib.Object{
 		
 		// sync file systems
 		sh += "echo '" + _("Syncing file systems...") + "' \n";
-		sh += "sync ; sleep 10s; \n";
+		sh += "sync ; sleep 10; \n";
 		sh += "echo '' \n";
 		
 		if (!restore_current_system){
@@ -2712,7 +2769,7 @@ public class Main : GLib.Object{
 		if (restore_current_system){
 			sh += "echo '' \n";
 			sh += "echo '" + _("Rebooting system...") + "' \n";
-			sh += "sleep 5s \n";
+			sh += "sleep 5 \n";
 			sh += "reboot -f \n";
 			//sh_reboot += "shutdown -r now \n";
 		}
@@ -2783,10 +2840,18 @@ public class Main : GLib.Object{
 
 		progress_text = _("Parsing log file...");
 		log_msg(progress_text);
-		var task = new RsyncTask();
-		task.parse_log(restore_log_file);
+		var log_task = new RsyncTask();
+		log_task.parse_log(restore_log_file);
 
 		// execute sh_finish --------------------
+
+		if (reinstall_grub2 || update_initramfs || update_grub){
+			progress_text = _("Updating bootloader configuration...");
+		}
+		else{
+			progress_text = _("Finalizing restore...");
+		}
+		log_msg(progress_text);
 
 		log_debug("executing sh_finish: ");
 		log_debug(sh_finish);
@@ -2874,13 +2939,16 @@ public class Main : GLib.Object{
 
 		progress_text = _("Parsing log file...");
 		log_msg(progress_text);
-		var task = new RsyncTask();
-		task.parse_log(restore_log_file);
+		var log_task = new RsyncTask();
+		log_task.parse_log(restore_log_file);
 
 		// execute sh_finish ------------
 
 		if (reinstall_grub2 || update_initramfs || update_grub){
 			progress_text = _("Updating bootloader configuration...");
+		}
+		else{
+			progress_text = _("Finalizing restore...");
 		}
 
 		log_debug("executing sh_finish: ");
@@ -4000,7 +4068,10 @@ public class Main : GLib.Object{
 
 		log_debug("estimate_system_size()");
 		
-		if (Main.first_snapshot_size > 0){
+		// Only skip estimation when BOTH size and count were previously determined.
+		// If count is 0 (e.g. loaded from an older config that didn't save it, or a
+		// previous dry-run failed), fall through and re-run the dry-run rsync once.
+		if (Main.first_snapshot_size > 0 && Main.first_snapshot_count > 0){
 			return Main.first_snapshot_size;
 		}
 		else if (live_system()){
@@ -4039,6 +4110,12 @@ public class Main : GLib.Object{
 		Main.first_snapshot_count = task.count_created;
 		if ((task.total_size == 0) && (sys_root != null)) {
 			Main.first_snapshot_size = sys_root.used_bytes;
+			// When rsync reports no total_size the dry-run did not complete normally.
+			// Use a reasonable fallback for count so subsequent backups don't endlessly
+			// re-trigger estimation (the early-return guard above requires count > 0).
+			if (Main.first_snapshot_count == 0){
+				Main.first_snapshot_count = 500000;
+			}
 		}
 
 		save_app_config();
@@ -4332,7 +4409,7 @@ public class Main : GLib.Object{
 			
 			//boot
 			if (schedule_boot){
-				CronTab.add_script_file("timeshift-boot", "d", "@reboot root sleep 10m && timeshift --create --scripted --tags B", stop_cron_emails);
+				CronTab.add_script_file("timeshift-boot", "d", "@reboot root sleep 600 && timeshift --create --scripted --tags B", stop_cron_emails);
 			}
 			else{
 				CronTab.remove_script_file("timeshift-boot", "d");

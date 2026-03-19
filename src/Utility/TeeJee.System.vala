@@ -38,7 +38,7 @@ namespace TeeJee.System{
 	
 	public int get_user_id(){
 
-		// returns actual user id of current user (even for applications executed with sudo and pkexec)
+		// returns actual user id of current user (even for applications executed with sudo, pkexec, or doas)
 		
 		string pkexec_uid = GLib.Environment.get_variable("PKEXEC_UID");
 
@@ -50,6 +50,16 @@ namespace TeeJee.System{
 
 		if (sudo_user != null){
 			return int.parse(sudo_user);
+		}
+
+		// doas (used on Alpine Linux) sets DOAS_USER with the invoking username
+		string doas_user = GLib.Environment.get_variable("DOAS_USER");
+
+		if (doas_user != null){
+			unowned Posix.Passwd? pw = Posix.getpwnam(doas_user);
+			if (pw != null){
+				return (int) pw.pw_uid;
+			}
 		}
 
 		return get_user_id_effective(); // normal user

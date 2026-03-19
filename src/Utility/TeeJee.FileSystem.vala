@@ -91,19 +91,25 @@ namespace TeeJee.FileSystem{
 	public int64? file_line_count (string file_path){
 		/* Count number of lines in text file returns null on error */
 
+		// NOTE: The old implementation used:
+		//   char symbol;
+		//   while ((symbol = (char) bis.read_byte()) != -1)
+		// On x86_64 (signed char) this works: (signed char)(0xFF) = -1, loop exits.
+		// On ARM64/AArch64 (unsigned char per AAPCS64 ABI) it is an infinite busy-spin:
+		//   GBufferedInputStream.read_byte() returns the gint -1 at EOF without
+		//   setting a GError, so Vala never throws; the value is cast to uint8 (= 255),
+		//   then to char (= unsigned 255 on ARM64); 255 != -1 is always TRUE.
+		// Fix: use DataInputStream.read_line() which returns null at EOF in Vala's
+		// GIO bindings regardless of the platform's char signedness.
+
 		try {
 			long line_nums = 0;
-			char symbol;
-
 			File file = File.new_for_path(file_path);
-			FileInputStream inStream = file.read();
-			BufferedInputStream bis = new BufferedInputStream.sized(inStream,  (size_t) (1 * MiB));
-			while((symbol = (char) bis.read_byte()) != -1) {
-				if(symbol == '\n') {
-					line_nums ++;
-				}
+			var dis = new DataInputStream(file.read());
+			while (dis.read_line(null) != null) {
+				line_nums++;
 			}
-			bis.close();
+			dis.close();
 			return line_nums;
 		} catch(Error e) {
 			log_error (e.message);

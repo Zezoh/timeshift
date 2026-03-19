@@ -580,42 +580,39 @@ public class Device : GLib.Object{
 
 		// add aliases from /dev/mapper/
 
-		try
-		{
-			File f_dev_mapper = File.new_for_path ("/dev/mapper");
+		if (dir_exists("/dev/mapper")){
+			try
+			{
+				File f_dev_mapper = File.new_for_path ("/dev/mapper");
 
-			FileEnumerator enumerator = f_dev_mapper.enumerate_children (
-				"%s,%s".printf(
-					FileAttribute.STANDARD_NAME, FileAttribute.STANDARD_SYMLINK_TARGET),
-				FileQueryInfoFlags.NOFOLLOW_SYMLINKS);
+				FileEnumerator enumerator = f_dev_mapper.enumerate_children (
+					"%s,%s".printf(
+						FileAttribute.STANDARD_NAME, FileAttribute.STANDARD_SYMLINK_TARGET),
+					FileQueryInfoFlags.NOFOLLOW_SYMLINKS);
 
-			FileInfo info;
-			while ((info = enumerator.next_file ()) != null) {
+				FileInfo info;
+				while ((info = enumerator.next_file ()) != null) {
 
-				if (info.get_name() == "control") { continue; }
+					if (info.get_name() == "control") { continue; }
 
-				File f_mapped = f_dev_mapper.resolve_relative_path(info.get_name());
+					File f_mapped = f_dev_mapper.resolve_relative_path(info.get_name());
 
-				string mapped_file = f_mapped.get_path();
-				string mapped_device = info.get_symlink_target();
-				mapped_device = mapped_device.replace("..","/dev");
-				//log_debug("info.get_name(): %s".printf(info.get_name()));
-				//log_debug("info.get_symlink_target(): %s".printf(info.get_symlink_target()));
-				//log_debug("mapped_file: %s".printf(mapped_file));
-				//log_debug("mapped_device: %s".printf(mapped_device));
+					string mapped_file = f_mapped.get_path();
+					string mapped_device = info.get_symlink_target();
+					mapped_device = mapped_device.replace("..","/dev");
 
-				foreach(var dev in list){
-					if (dev.device == mapped_device){
-						dev.mapped_name = mapped_file.replace("/dev/mapper/","");
-						dev.symlinks.add(mapped_file);
-						//log_debug("found link: %s -> %s".printf(mapped_file, dev.device));
-						break;
+					foreach(var dev in list){
+						if (dev.device == mapped_device){
+							dev.mapped_name = mapped_file.replace("/dev/mapper/","");
+							dev.symlinks.add(mapped_file);
+							break;
+						}
 					}
 				}
 			}
-		}
-		catch (Error e) {
-			log_error (e.message);
+			catch (Error e) {
+				log_error (e.message);
+			}
 		}
 
 		device_list = list;

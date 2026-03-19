@@ -198,6 +198,11 @@ class BootOptionsBox : Gtk.Box{
 				// grub2-install should never be run on EFI fedora systems
 				chk_reinstall_grub.sensitive = false;
 			}
+			else if (App.snapshot_to_restore.distro.dist_type == "alpine"){
+				// Alpine Linux (e.g., Raspberry Pi) does not use GRUB bootloader
+				chk_reinstall_grub.sensitive = false;
+				chk_update_grub.sensitive = false;
+			}
 		}
 	}
 	

@@ -957,6 +957,24 @@ public class AppConsole : GLib.Object {
 
 	private void select_grub_device(){
 
+		// Determine the effective distro for this operation:
+		// - when restoring a snapshot, use that snapshot's distro
+		// - when cloning (mirror_system), snapshot_to_restore is null; use current_distro
+		string op_dist_type = "";
+		if (App.snapshot_to_restore != null) {
+			op_dist_type = App.snapshot_to_restore.distro.dist_type;
+		} else if (App.mirror_system) {
+			op_dist_type = App.current_distro.dist_type;
+		}
+
+		// Alpine Linux (e.g., Raspberry Pi) does not use GRUB bootloader at all.
+		// Skip all GRUB selection/prompts to avoid failures and hangs.
+		if (op_dist_type == "alpine") {
+			App.reinstall_grub2 = false;
+			App.cmd_skip_grub = true;
+			return;
+		}
+
 		string grub_device_default = App.grub_device;
 		bool grub_reinstall_default = App.reinstall_grub2;
 		App.reinstall_grub2 = false;

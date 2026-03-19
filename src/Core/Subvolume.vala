@@ -119,6 +119,8 @@ public class Subvolume : GLib.Object{
 		log_debug("name=%s, uuid=%s, id=%ld, path=%s".printf(name, device_uuid, id, path));
 	}
 
+	private const int BTRFS_OP_MAX_RETRIES = 30;
+
 	// actions ----------------------------------
 	
 	public bool remove(){
@@ -182,15 +184,25 @@ public class Subvolume : GLib.Object{
 			if ((id > 0) && (repo != null)){
 
 				log_debug("Waiting on btrfs to finish deleting...");
+				int retries = 0;
 				while (exec_sync("btrfs subvolume sync %s".printf(mount_path), out std_out, out std_err) != 0) {
 					log_debug("Still waiting for btrfs to finish deleting... %s".printf(std_err));
 					sleep(1000);
+					if (++retries >= BTRFS_OP_MAX_RETRIES) {
+						log_error("Timeout waiting for btrfs subvolume sync after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
+						break;
+					}
 				}
 
                 log_debug("Rescanning quotas...");
+                retries = 0;
                 while (exec_sync("btrfs quota rescan %s".printf(mount_path), out std_out, out std_err) != 0) {
                     log_debug("Still rescanning quotas... %s".printf(std_err));
                     sleep(1000);
+                    if (++retries >= BTRFS_OP_MAX_RETRIES) {
+						log_error("Timeout waiting for btrfs quota rescan after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
+						break;
+					}
                 }
 
 				// Check if qgroup still exists before trying to destroy it.
@@ -219,15 +231,25 @@ public class Subvolume : GLib.Object{
 				}
 
                 log_debug("Rescanning quotas (post)...");
+                retries = 0;
                 while (exec_sync("btrfs quota rescan %s".printf(mount_path), out std_out, out std_err) != 0) {
                     log_debug("Still rescanning quotas (post)... %s".printf(std_err));
                     sleep(1000);
+                    if (++retries >= BTRFS_OP_MAX_RETRIES) {
+						log_error("Timeout waiting for btrfs quota rescan (post) after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
+						break;
+					}
                 }
 
                 log_debug("Final sync (post)...");
+                retries = 0;
                 while (exec_sync("btrfs subvolume sync %s".printf(mount_path), out std_out, out std_err) != 0) {
                     log_debug("Still syncing (post)... %s".printf(std_err));
                     sleep(1000);
+                    if (++retries >= BTRFS_OP_MAX_RETRIES) {
+						log_error("Timeout waiting for btrfs subvolume sync (post) after %d retries: %s".printf(BTRFS_OP_MAX_RETRIES, std_err));
+						break;
+					}
                 }
 
 			}
