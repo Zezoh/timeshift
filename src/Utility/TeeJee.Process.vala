@@ -207,14 +207,34 @@ namespace TeeJee.ProcessHelper{
 		may execute the command as root if the user could not be determined or the name could not be resolved
 	 */
 	public static int exec_user_async(string command) {
-		// find correct user
 		int uid = TeeJee.System.get_user_id();
 		string cmd = command;
-		if(uid > 0) {
-			// non root
+
+		if (uid > 0 && TeeJee.System.get_user_id_effective() == 0) {
+			// Running as root (via sudo/pkexec) but the original user is non-root.
+			// Use su to switch to the original user; su requires no password when called as root,
+			// unlike pkexec --user which triggers a polkit authentication dialog.
 			string? user = TeeJee.System.get_username_from_uid(uid);
-			if(user != null) {
-				cmd = "pkexec --user %s env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS ".printf(user) + cmd;
+			if (user != null) {
+				string display  = GLib.Environment.get_variable("DISPLAY") ?? "";
+				string xauth    = GLib.Environment.get_variable("XAUTHORITY") ?? "";
+				// sudo clears DBUS_SESSION_BUS_ADDRESS; find it via the systemd session socket.
+				string dbus_addr = GLib.Environment.get_variable("DBUS_SESSION_BUS_ADDRESS") ?? "";
+				if (dbus_addr.length == 0) {
+					string bus_path = "/run/user/%d/bus".printf(uid);
+					if (file_exists(bus_path)) {
+						dbus_addr = "unix:path=%s".printf(bus_path);
+					}
+				}
+				// Build the inner command with env vars set; use escape_single_quote so that
+				// any single quotes in paths (already escaped by callers) survive the su -c '...'
+				// single-quoted wrapper.
+				string inner = "DISPLAY=%s XAUTHORITY=%s DBUS_SESSION_BUS_ADDRESS=%s %s".printf(
+					escape_single_quote(display),
+					escape_single_quote(xauth),
+					escape_single_quote(dbus_addr),
+					escape_single_quote(command));
+				cmd = "su -s /bin/sh '%s' -c '%s'".printf(escape_single_quote(user), inner);
 			}
 		}
 
