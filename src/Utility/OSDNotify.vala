@@ -68,7 +68,10 @@ public class OSDNotify : GLib.Object {
 				string desktop_entry = "timeshift-gtk";
 				string hint = "string:desktop-entry:%s".printf(desktop_entry);
 
-				string s = "notify-send -t %d -u %s -i %s \"%s\" \"%s\" -h %s".printf(
+				// Redirect stderr to /dev/null since notify-send may fail
+				// when D-Bus session is not available (e.g. running via
+				// doas/sudo without a desktop session). This is best-effort.
+				string s = "notify-send -t %d -u %s -i %s \"%s\" \"%s\" -h %s 2>/dev/null".printf(
 					durationMillis, urgency, "gtk-dialog-" + dialog_type, title, message, hint);
 				
 				retVal = TeeJee.ProcessHelper.exec_user_async(s);
