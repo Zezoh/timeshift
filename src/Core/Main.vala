@@ -2310,9 +2310,10 @@ public class Main : GLib.Object{
 
 		// Alpine Linux (e.g., Raspberry Pi) uses the RPi/U-Boot firmware and
 		// does not use GRUB at all; skip every GRUB step to avoid failures.
+		// Always update initramfs (mkinitfs) since Alpine relies on it for boot.
 		if (op_dist_type == "alpine"){
 			reinstall_grub2 = false;
-			update_initramfs = mirror_system; // run mkinitfs only when cloning
+			update_initramfs = true;
 			update_grub = false;
 		}
 		else if (mirror_system){
