@@ -1689,8 +1689,16 @@ public class Main : GLib.Object{
 		stdout.printf("\r");
 		stdout.flush();
 
-		if (task.total_size == 0){
-			log_error(_("rsync returned an error"));
+		// Check rsync exit code: 0 = success, 24 = some files vanished during
+		// transfer (normal for live system backups where processes create/delete
+		// files while rsync runs).  The old check (total_size == 0) relied on
+		// parsing a regex from rsync's stdout which can silently fail on Alpine
+		// Linux / musl / ARM64 due to locale differences or memory-ordering of
+		// the plain int64 field, causing info.json to never be written.
+		log_debug("rsync: exit_code=%d, total_size=%lld".printf(task.exit_code, task.total_size));
+
+		if (task.exit_code != 0 && task.exit_code != 24){
+			log_error(_("rsync returned an error") + " (exit code: %d)".printf(task.exit_code));
 			log_error(_("Failed to create new snapshot"));
 			return null;
 		}
