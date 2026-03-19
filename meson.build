@@ -4,7 +4,7 @@ project(
   'c',
   version : '25.12.4',
   license : 'GPL-2.0-or-later',
-  meson_version : '>= 0.54.0',
+  meson_version : '>= 0.59.0',
   default_options : ['c_std=c99', 'build.c_std=c99']
 )
 
@@ -30,6 +30,7 @@ endif
 
 # Include the translations module
 i18n = import('i18n')
+gnome = import('gnome')
 
 am_cflags = [
   '-fstack-protector',
@@ -50,4 +51,9 @@ endif
 install_data(
   sources: 'debian/com.linuxmint.timeshift.metainfo.xml',
   install_dir: join_paths(get_option('datadir'), 'metainfo')
+)
+
+gnome.post_install(
+  gtk_update_icon_cache: true,
+  update_desktop_database: true,
 )

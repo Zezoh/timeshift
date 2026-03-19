@@ -72,6 +72,10 @@ public class AppGtk : GLib.Object {
 
 		GTK_INITIALIZED = true;
 
+		// Initialize the icon theme early so that any dialogs shown before
+		// App/Main is constructed (e.g. the admin-access error dialog) have icons.
+		IconManager.refresh_icon_theme();
+
 		init_tmp();
 
 		check_if_admin();

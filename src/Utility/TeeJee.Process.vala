@@ -207,14 +207,62 @@ namespace TeeJee.ProcessHelper{
 		may execute the command as root if the user could not be determined or the name could not be resolved
 	 */
 	public static int exec_user_async(string command) {
-		// find correct user
 		int uid = TeeJee.System.get_user_id();
 		string cmd = command;
-		if(uid > 0) {
-			// non root
+
+		if (uid > 0 && TeeJee.System.get_user_id_effective() == 0) {
+			// Running as root (via sudo/pkexec/doas) but the original user is non-root.
+			// Use su to switch back; su from root needs no password.
 			string? user = TeeJee.System.get_username_from_uid(uid);
-			if(user != null) {
-				cmd = "pkexec --user %s env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS ".printf(user) + cmd;
+			if (user != null) {
+				string display        = GLib.Environment.get_variable("DISPLAY") ?? "";
+				string xauth          = GLib.Environment.get_variable("XAUTHORITY") ?? "";
+				string dbus_addr      = GLib.Environment.get_variable("DBUS_SESSION_BUS_ADDRESS") ?? "";
+				string wayland_disp   = GLib.Environment.get_variable("WAYLAND_DISPLAY") ?? "";
+				// On systemd systems the session bus socket lives under /run/user/<uid>/bus.
+				if (dbus_addr.length == 0) {
+					string bus_path = "/run/user/%d/bus".printf(uid);
+					if (file_exists(bus_path)) {
+						dbus_addr = "unix:path=%s".printf(bus_path);
+					}
+				}
+
+				// Build the env exports that will be fed to su via a heredoc.
+				// IMPORTANT: only export variables that are non-empty.  An explicit empty
+				// assignment (e.g. DBUS_SESSION_BUS_ADDRESS=) breaks D-Bus-dependent apps
+				// (Thunar 2.x, etc.) on Alpine Linux where OpenRC provides no systemd socket.
+				var env_lines = new StringBuilder();
+				if (display.length > 0)
+					env_lines.append("export DISPLAY='%s'\n".printf(escape_single_quote(display)));
+				if (xauth.length > 0)
+					env_lines.append("export XAUTHORITY='%s'\n".printf(escape_single_quote(xauth)));
+				if (dbus_addr.length > 0)
+					env_lines.append("export DBUS_SESSION_BUS_ADDRESS='%s'\n".printf(escape_single_quote(dbus_addr)));
+				// Export Wayland session vars so gio open / the file manager can connect
+				// to the Wayland compositor when running without an X11 display.
+				if (wayland_disp.length > 0)
+					env_lines.append("export WAYLAND_DISPLAY='%s'\n".printf(escape_single_quote(wayland_disp)));
+				// Always give the subprocess the correct XDG_RUNTIME_DIR for the real user
+				// (/run/user/<uid>), not root's (/run/user/0) which setup_env() sets for itself.
+				string xdg_runtime = "/run/user/%d".printf(uid);
+				if (file_exists(xdg_runtime))
+					env_lines.append("export XDG_RUNTIME_DIR='%s'\n".printf(xdg_runtime));
+
+				// Use a heredoc to feed commands to su via stdin.
+				// This avoids creating a temp script that the unprivileged user must execute:
+				//   - TEMP_DIR is chmod 0750 (root-only entry)
+				//   - scripts are chmod 0744 (root-only execute)
+				// The single-quoted heredoc delimiter ('TIMESHIFT_END') tells the
+				// OUTER shell (running as root) to pass the body completely verbatim —
+				// no variable expansion, no backslash processing.  The body is piped
+				// to su's stdin; the target user's sh then reads and interprets the commands
+				// normally.  command is already valid sh (callers pass things like
+				// "gio open 'uri'" or "thunar '/path'") so no re-quoting is needed.
+				// Use a random delimiter so no path substring can accidentally close the heredoc.
+				string delim = "TIMESHIFT_%s".printf(random_string().up());
+				string inner = env_lines.str + command;
+				cmd = "su -s /bin/sh '%s' << '%s'\n%s\n%s".printf(
+					escape_single_quote(user), delim, inner, delim);
 			}
 		}
 
@@ -332,8 +380,27 @@ namespace TeeJee.ProcessHelper{
 	public Pid get_user_process() {
 		Pid ppid = -1;
 		int targetUser = TeeJee.System.get_user_id();
-		int user = 0;
 
+		// When running as root but unable to identify the real user (e.g. doas
+		// without DOAS_USER exported), the normal loop would match init (pid=1,
+		// uid=0) and return its nearly-empty environment, making setup_env() a
+		// no-op.  Instead, walk the entire parent chain and return the HIGHEST
+		// (oldest) non-root ancestor — that is the user's session process or
+		// shell, which carries the original DISPLAY/XAUTHORITY/WAYLAND_DISPLAY
+		// environment that setup_env() needs to copy.
+		if (targetUser == 0 && TeeJee.System.get_user_id_effective() == 0) {
+			Pid best = -1;
+			do {
+				ppid = get_process_parent(ppid);
+				int u = get_euid_of_process(ppid);
+				if (u > 0) {
+					best = ppid;
+				}
+			} while (ppid > 1);
+			return best;
+		}
+
+		int user = 0;
 		do {
 			ppid = get_process_parent(ppid);
 			user = get_euid_of_process (ppid);
@@ -363,6 +430,34 @@ namespace TeeJee.ProcessHelper{
 			}
 		}
 		return default_value;
+	}
+
+	// Scan all /proc/<pid>/environ entries owned by uid to find DBUS_SESSION_BUS_ADDRESS.
+	// This is needed on Alpine Linux (OpenRC, no systemd) where doas/sudo may clear the
+	// environment and the variable is not in the immediate parent process chain.
+	public string? find_dbus_for_uid(int uid) {
+		var procdir = GLib.File.new_for_path("/proc");
+		try {
+			var enumerator = procdir.enumerate_children(
+				FileAttribute.STANDARD_NAME, FileQueryInfoFlags.NOFOLLOW_SYMLINKS);
+			FileInfo? info;
+			while ((info = enumerator.next_file()) != null) {
+				if (info.get_file_type() != FileType.DIRECTORY) { continue; }
+				string name = info.get_name();
+				uint64 pid_val;
+				if (!uint64.try_parse(name, out pid_val)) { continue; }
+				if (get_euid_of_process((Pid) pid_val) != uid) { continue; }
+				string[]? penv = get_process_env((Pid) pid_val);
+				if (penv == null) { continue; }
+				string? addr = get_env(penv, "DBUS_SESSION_BUS_ADDRESS");
+				if (addr != null && addr.length > 0) {
+					return addr;
+				}
+			}
+		} catch (Error e) {
+			log_debug("find_dbus_for_uid: %s".printf(e.message));
+		}
+		return null;
 	}
 
 	public Pid[] get_process_children (Pid parent_pid){

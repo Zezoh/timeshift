@@ -62,6 +62,27 @@ namespace TeeJee.System{
 			}
 		}
 
+		// Last-resort fallback for doas configurations that do not export DOAS_USER:
+		// stat the XAUTHORITY file to find the display owner's UID.
+		// setup_env() copies the user's XAUTHORITY path from their process environment,
+		// so this file is always owned by the real (non-root) user.
+		if (get_user_id_effective() == 0) {
+			string? xauth = GLib.Environment.get_variable("XAUTHORITY");
+			if (xauth != null && xauth.length > 0) {
+				try {
+					var xf = File.new_for_path(xauth);
+					var xi = xf.query_info("unix::uid", FileQueryInfoFlags.NONE);
+					int xuid = (int) xi.get_attribute_uint32("unix::uid");
+					if (xuid > 0) {
+						log_debug("get_user_id: detected uid %d from XAUTHORITY file owner".printf(xuid));
+						return xuid;
+					}
+				} catch (Error e) {
+					log_debug("get_user_id: failed to stat XAUTHORITY '%s': %s".printf(xauth, e.message));
+				}
+			}
+		}
+
 		return get_user_id_effective(); // normal user
 	}
 
@@ -98,6 +119,27 @@ namespace TeeJee.System{
 	// open -----------------------------
 
 	public static bool xdg_open (string file){
+		// When running as a GTK application, use GLib's AppInfo which leverages
+		// the existing display/D-Bus session. Works on both X11 and Wayland.
+		// NEVER use AppInfo when running as root: it would launch the target app
+		// (browser, text editor) as root, which modern apps refuse or warn about.
+		bool running_as_root = (TeeJee.System.get_user_id_effective() == 0);
+		if (!running_as_root && GTK_INITIALIZED) {
+			try {
+				// Ensure we have a proper URI (URIs start with a scheme like "http://" or "file://")
+				string uri = (file.index_of("://") >= 0) ? file : GLib.File.new_for_path(file).get_uri();
+				Gdk.AppLaunchContext? ctx = null;
+				var display = Gdk.Display.get_default();
+				if (display != null) {
+					ctx = display.get_app_launch_context();
+				}
+				GLib.AppInfo.launch_default_for_uri(uri, ctx);
+				return true;
+			} catch (Error e) {
+				log_debug("xdg_open AppInfo: %s".printf(e.message));
+			}
+		}
+
 		if (!TeeJee.ProcessHelper.cmd_exists("xdg-open")) {
 			return false;
 		}
@@ -111,43 +153,62 @@ namespace TeeJee.System{
 
 		/* Tries to open the given directory in a file manager */
 
-		/*
-		xdg-open is a desktop-independent tool for configuring the default applications of a user.
-		Inside a desktop environment (e.g. GNOME, KDE, Xfce), xdg-open simply passes the arguments
-		to that desktop environment's file-opener application (gvfs-open, kde-open, exo-open, respectively).
-		We will first try using xdg-open and then check for specific file managers if it fails.
-		*/
-
-		bool xdgAvailable = cmd_exists("xdg-open");
-		string escaped_dir_path = escape_single_quote(dir_path);
-		int status = -1;
-
-		if (xdg_open_try_first && xdgAvailable){
-			//try using xdg-open
-			string cmd = "xdg-open '%s'".printf(escaped_dir_path);
-			status = exec_script_async (cmd);
-			return (status == 0);
+		if (dir_path.length == 0) {
+			log_debug("exo_open_folder: path is empty");
+			return false;
 		}
 
-		foreach(string app_name in
-			new string[]{ "nemo", "nautilus", "thunar", "io.elementary.files", "pantheon-files", "marlin", "dolphin" }){
-			if(!cmd_exists(app_name)) {
-				continue;
-			}
+		string uri = GLib.File.new_for_path(dir_path).get_uri();
+		string escaped = escape_single_quote(dir_path);
 
-			string cmd = "%s '%s'".printf(app_name, escaped_dir_path);
-			status = exec_script_async (cmd);
+		// When running as root on behalf of a real user (sudo/pkexec/doas), or any
+		// time we are root, skip GLib AppInfo.  AppInfo inherits the current euid,
+		// so it would launch the file manager as root.  Modern file managers
+		// (Nautilus 42+, Thunar 4.x, etc.) refuse to run as root and print warnings.
+		// Run the file manager as the actual user via exec_user_async instead.
+		bool running_as_root = (TeeJee.System.get_user_id_effective() == 0);
 
-			if(status == 0) {
+		if (!running_as_root && GTK_INITIALIZED) {
+			try {
+				Gdk.AppLaunchContext? ctx = null;
+				var display = Gdk.Display.get_default();
+				if (display != null) {
+					ctx = display.get_app_launch_context();
+				}
+				GLib.AppInfo.launch_default_for_uri(uri, ctx);
 				return true;
+			} catch (Error e) {
+				log_debug("exo_open_folder AppInfo: %s".printf(e.message));
+				// fall through to subprocess path
 			}
 		}
 
-		if (!xdg_open_try_first && xdgAvailable){
-			//try using xdg-open
-			string cmd = "xdg-open '%s'".printf(escaped_dir_path);
-			status = exec_script_async (cmd);
-			return (status == 0);
+		// Subprocess path — exec_user_async runs the command as the real user
+		// (not root) so it sees the correct MIME handlers and D-Bus session.
+		//
+		// 'gio open' is always available (part of glib) and works without a
+		// desktop-specific helper, making it the best choice on Alpine Linux.
+		if (cmd_exists("gio")) {
+			exec_user_async("gio open '%s'".printf(escape_single_quote(uri)));
+			return true;
+		}
+
+		if (xdg_open_try_first && cmd_exists("xdg-open")) {
+			exec_user_async("xdg-open '%s'".printf(escaped));
+			return true;
+		}
+
+		foreach (string app in new string[]{
+				"thunar", "nemo", "nautilus", "pcmanfm", "dolphin",
+				"io.elementary.files", "pantheon-files", "caja", "marlin"}) {
+			if (!cmd_exists(app)) { continue; }
+			exec_user_async("%s '%s'".printf(app, escaped));
+			return true;
+		}
+
+		if (!xdg_open_try_first && cmd_exists("xdg-open")) {
+			exec_user_async("xdg-open '%s'".printf(escaped));
+			return true;
 		}
 
 		return false;
