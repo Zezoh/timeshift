@@ -76,6 +76,11 @@ public class AppGtk : GLib.Object {
 		// App/Main is constructed (e.g. the admin-access error dialog) have icons.
 		IconManager.refresh_icon_theme();
 
+		// Set the default window icon for the entire application so that
+		// the window manager / panel can display the correct icon for all
+		// windows, including minimised ones in the GNOME taskbar.
+		Gtk.Window.set_default_icon_name("timeshift");
+
 		init_tmp();
 
 		check_if_admin();
