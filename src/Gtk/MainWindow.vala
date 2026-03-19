@@ -76,13 +76,7 @@ class MainWindow : Gtk.Window{
         this.modal = true;
         this.set_default_size (def_width, def_height);
 		this.delete_event.connect(on_delete_event);
-		// Set icon by name first (lets the WM pick the right size from the hicolor theme),
-		// then fall back to loading a pixbuf in case the theme lookup fails.
 		this.icon_name = "timeshift";
-		var window_icon = IconManager.lookup("timeshift", 16);
-		if (window_icon != null) {
-			this.icon = window_icon;
-		}
 
 	    //vbox_main
         vbox_main = new Gtk.Box(Orientation.VERTICAL, 0);
