@@ -1711,6 +1711,11 @@ public class Main : GLib.Object{
 		var snapshot = Snapshot.write_control_file(
 			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
 			initial_tags, cmd_comments, fcount, false, false, repo);
+		if (!snapshot.valid){
+			log_error(_("Failed to create control file"));
+			log_error(_("Failed to create new snapshot"));
+			return null;
+		}
 
 		set_tags(snapshot); // set_tags() will update the control file
 
@@ -1798,6 +1803,11 @@ public class Main : GLib.Object{
 		var snapshot = Snapshot.write_control_file(
 			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
 			initial_tags, cmd_comments, 0, true, false, repo);
+		if (!snapshot.valid){
+			log_error(_("Failed to create control file"));
+			log_error(_("Failed to create subvolume snapshot"));
+			return null;
+		}
 
 		// write subvolume info
 		foreach(var subvol in sys_subvolumes.values){
@@ -3318,6 +3328,10 @@ public class Main : GLib.Object{
 					snapshot_path, dt_created, repo.device.uuid,
 					LinuxDistro.get_dist_info(path_combine(snapshot_path,"@")).full_name(),
 					"ondemand", "", 0, true, false, repo);
+				if (!snap.valid){
+					log_error(_("Failed to create control file"));
+					return false;
+				}
 
 				snap.description = "Before restoring '%s'".printf(snapshot_to_restore.date_formatted);
 				snap.live = true;
@@ -4507,4 +4521,3 @@ public class Main : GLib.Object{
 		}
 	}
 }
-

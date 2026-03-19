@@ -399,6 +399,7 @@ public class Snapshot : GLib.Object{
 			
 		var ctl_path = snapshot_path + "/info.json";
 		var config = new Json.Object();
+		bool write_ok = true;
 
 		config.set_string_member("created", dt_created.to_utc().to_unix().to_string());
 		config.set_string_member("sys-uuid", root_uuid);
@@ -425,11 +426,15 @@ public class Snapshot : GLib.Object{
 
 			json.to_file(ctl_path);
 		} catch (Error e) {
+			write_ok = false;
 	        log_error (e.message);
 	    }
 
-		if (!silent){
+		if (!silent && write_ok && file_exists(ctl_path)){
 			log_msg(_("Created control file") + ": %s".printf(ctl_path));
+		}
+		else if (!silent){
+			log_error(_("Failed to create control file") + ": %s".printf(ctl_path));
 		}
 
 	    return (new Snapshot(snapshot_path, is_btrfs, repo));
