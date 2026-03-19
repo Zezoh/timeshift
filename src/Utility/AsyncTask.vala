@@ -45,7 +45,6 @@ public abstract class AsyncTask : GLib.Object{
 	private int output_fd = -1;
 	private int error_fd = -1;
 	private bool finish_called = false;
-	private bool child_exited = false;
 
 	protected string script_file = "";
 	protected string working_dir = "";
@@ -119,7 +118,6 @@ public abstract class AsyncTask : GLib.Object{
 		
 		bool has_started = true;
 		finish_called = false;
-		child_exited = false;
 
 		prg_count = 0;
 
@@ -138,21 +136,12 @@ public abstract class AsyncTask : GLib.Object{
 			    working_dir, // working dir
 			    spawn_args,  // argv
 			    spawn_env,   // environment
-			    SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD,
+			    SpawnFlags.SEARCH_PATH,
 			    null,        // child_setup
 			    out child_pid,
 			    out input_fd,
 			    out output_fd,
 			    out error_fd);
-			try {
-				// child-watch callbacks depend on a running main loop in the
-				// owning context. Snapshot/restore tasks can run in worker
-				// threads, so use a dedicated waiter thread for portability.
-				new Thread<void>.try ("async-task-child-waiter", wait_for_child_exit);
-			} catch (GLib.Error e) {
-				log_error ("AsyncTask.begin():create_thread:wait_for_child_exit()");
-				log_error (e.message);
-			}
 
 			log_debug("AsyncTask: child_pid: %d".printf(child_pid));
 			
@@ -268,19 +257,9 @@ public abstract class AsyncTask : GLib.Object{
 	}
 
 	private void try_finish(){
-		// finish only after child has exited and both output readers have closed
-		if (child_exited && !stdout_is_open && !stderr_is_open){
+		if (!stdout_is_open && !stderr_is_open){
 			finish();
 		}
-	}
-
-	private void wait_for_child_exit() {
-		int wait_status = 0;
-		if (child_pid > 0){
-			Posix.waitpid(child_pid, out wait_status, 0);
-		}
-		child_exited = true;
-		try_finish();
 	}
 
 	public void write_stdin(string line){
