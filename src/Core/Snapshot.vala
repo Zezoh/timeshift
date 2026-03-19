@@ -379,8 +379,28 @@ public class Snapshot : GLib.Object{
 				json.indent = 2;
 				node.set_object(config);
 				json.set_root(node);
-				f.delete();
-				json.to_file(ctl_file);
+
+				bool written = false;
+				try {
+					f.delete();
+					json.to_file(ctl_file);
+					written = file_exists(ctl_file);
+				} catch (Error e2) {
+					log_error(e2.message);
+				}
+
+				// Fallback: write via file_write() if json.to_file() failed
+				if (!written){
+					log_debug("json.to_file() did not update info.json; trying fallback write");
+					string json_text = json.to_data(null);
+					if (json_text != null && json_text.length > 0){
+						written = file_write(ctl_file, json_text);
+					}
+				}
+
+				if (!written){
+					log_error(_("Failed to update control file") + ": %s".printf(ctl_file));
+				}
 			}
 		} catch (Error e) {
 			log_error (e.message);
@@ -393,7 +413,7 @@ public class Snapshot : GLib.Object{
 		file_delete(ctl_file);
 	}
 	
-	public static Snapshot write_control_file(
+	public static Snapshot? write_control_file(
 		string snapshot_path, DateTime dt_created, string root_uuid, string distro_full_name, 
 		string tag, string comments, int64 item_count, bool is_btrfs, bool is_live, SnapshotRepo repo, bool silent = false){
 			
@@ -417,6 +437,8 @@ public class Snapshot : GLib.Object{
 		node.set_object(config);
 		json.set_root(node);
 
+		bool written = false;
+
 		try{
 			var f = File.new_for_path(ctl_path);
 			if (f.query_exists()){
@@ -424,9 +446,24 @@ public class Snapshot : GLib.Object{
 			}
 
 			json.to_file(ctl_path);
+			written = file_exists(ctl_path);
 		} catch (Error e) {
 	        log_error (e.message);
 	    }
+
+		// Fallback: if json.to_file() failed silently, write via file_write()
+		if (!written){
+			log_debug("json.to_file() did not create info.json; trying fallback write");
+			string json_text = json.to_data(null);
+			if (json_text != null && json_text.length > 0){
+				written = file_write(ctl_path, json_text);
+			}
+		}
+
+		if (!written){
+			log_error(_("Failed to create control file") + ": %s".printf(ctl_path));
+			return null;
+		}
 
 		if (!silent){
 			log_msg(_("Created control file") + ": %s".printf(ctl_path));
