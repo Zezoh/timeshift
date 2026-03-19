@@ -45,6 +45,7 @@ public abstract class AsyncTask : GLib.Object{
 	private int output_fd = -1;
 	private int error_fd = -1;
 	private bool finish_called = false;
+	private bool child_exited = false;
 
 	protected string script_file = "";
 	protected string working_dir = "";
@@ -118,6 +119,7 @@ public abstract class AsyncTask : GLib.Object{
 		
 		bool has_started = true;
 		finish_called = false;
+		child_exited = false;
 
 		prg_count = 0;
 
@@ -142,6 +144,10 @@ public abstract class AsyncTask : GLib.Object{
 			    out input_fd,
 			    out output_fd,
 			    out error_fd);
+			ChildWatch.add(child_pid, (pid, status_code) => {
+				child_exited = true;
+				try_finish();
+			});
 
 			log_debug("AsyncTask: child_pid: %d".printf(child_pid));
 			
@@ -238,10 +244,7 @@ public abstract class AsyncTask : GLib.Object{
 		catch (GLib.Error ignored) {}
 		dis_out = null;
 
-		// check if complete
-		if (!stdout_is_open && !stderr_is_open){
-			finish();
-		}
+		try_finish();
 	}
 
 	private void finalize_stderr_reader(){
@@ -256,8 +259,12 @@ public abstract class AsyncTask : GLib.Object{
 		catch (GLib.Error ignored) {}
 		dis_err = null;
 
-		// check if complete
-		if (!stdout_is_open && !stderr_is_open){
+		try_finish();
+	}
+
+	private void try_finish(){
+		// finish only after child has exited and both output readers have closed
+		if (child_exited && !stdout_is_open && !stderr_is_open){
 			finish();
 		}
 	}
