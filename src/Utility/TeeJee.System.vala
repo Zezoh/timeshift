@@ -134,12 +134,19 @@ namespace TeeJee.System{
 			return false;
 		}
 
-		// When running as a GTK application, use GLib's AppInfo which leverages
-		// the existing display/D-Bus session. This is the most reliable approach
-		// and works on both X11 and Wayland without requiring a subprocess.
-		if (GTK_INITIALIZED) {
+		string uri = GLib.File.new_for_path(dir_path).get_uri();
+		string escaped = escape_single_quote(dir_path);
+
+		// When running as root on behalf of a real user (sudo/pkexec/doas), skip
+		// GLib AppInfo: it would launch the file manager as ROOT using root's MIME
+		// configuration, which is often unconfigured on Alpine.  The root process's
+		// DBUS_SESSION_BUS_ADDRESS may also be refused by the user's session bus
+		// policy, causing a silent exception.  Run as the actual user instead.
+		bool root_for_user = (TeeJee.System.get_user_id_effective() == 0
+		                      && TeeJee.System.get_user_id() > 0);
+
+		if (!root_for_user && GTK_INITIALIZED) {
 			try {
-				string uri = GLib.File.new_for_path(dir_path).get_uri();
 				Gdk.AppLaunchContext? ctx = null;
 				var display = Gdk.Display.get_default();
 				if (display != null) {
@@ -149,48 +156,36 @@ namespace TeeJee.System{
 				return true;
 			} catch (Error e) {
 				log_debug("exo_open_folder AppInfo: %s".printf(e.message));
+				// fall through to subprocess path
 			}
 		}
 
-		// Subprocess fallback: used in CLI mode (GTK_INITIALIZED == false) or if AppInfo failed.
-		// exec_user_async handles user-switching when timeshift runs as root (via sudo/pkexec).
-		/*
-		xdg-open is a desktop-independent tool for configuring the default applications of a user.
-		Inside a desktop environment (e.g. GNOME, KDE, Xfce), xdg-open simply passes the arguments
-		to that desktop environment's file-opener application (gvfs-open, kde-open, exo-open, respectively).
-		We will first try using xdg-open and then check for specific file managers if it fails.
-		*/
-
-		bool xdgAvailable = cmd_exists("xdg-open");
-		string escaped_dir_path = escape_single_quote(dir_path);
-		int status = -1;
-
-		if (xdg_open_try_first && xdgAvailable){
-			//try using xdg-open
-			string cmd = "xdg-open '%s'".printf(escaped_dir_path);
-			status = exec_user_async (cmd);
-			return (status == 0);
+		// Subprocess path — exec_user_async runs the command as the real user
+		// (not root) so it sees the correct MIME handlers and D-Bus session.
+		//
+		// 'gio open' is always available (part of glib) and works without a
+		// desktop-specific helper, making it the best choice on Alpine Linux.
+		if (cmd_exists("gio")) {
+			exec_user_async("gio open '%s'".printf(escape_single_quote(uri)));
+			return true;
 		}
 
-		foreach(string app_name in
-			new string[]{ "nemo", "nautilus", "thunar", "io.elementary.files", "pantheon-files", "marlin", "dolphin" }){
-			if(!cmd_exists(app_name)) {
-				continue;
-			}
-
-			string cmd = "%s '%s'".printf(app_name, escaped_dir_path);
-			status = exec_user_async (cmd);
-
-			if(status == 0) {
-				return true;
-			}
+		if (xdg_open_try_first && cmd_exists("xdg-open")) {
+			exec_user_async("xdg-open '%s'".printf(escaped));
+			return true;
 		}
 
-		if (!xdg_open_try_first && xdgAvailable){
-			//try using xdg-open
-			string cmd = "xdg-open '%s'".printf(escaped_dir_path);
-			status = exec_user_async (cmd);
-			return (status == 0);
+		foreach (string app in new string[]{
+				"thunar", "nemo", "nautilus", "pcmanfm", "dolphin",
+				"io.elementary.files", "pantheon-files", "caja", "marlin"}) {
+			if (!cmd_exists(app)) { continue; }
+			exec_user_async("%s '%s'".printf(app, escaped));
+			return true;
+		}
+
+		if (!xdg_open_try_first && cmd_exists("xdg-open")) {
+			exec_user_async("xdg-open '%s'".printf(escaped));
+			return true;
 		}
 
 		return false;

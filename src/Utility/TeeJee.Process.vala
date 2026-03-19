@@ -211,30 +211,46 @@ namespace TeeJee.ProcessHelper{
 		string cmd = command;
 
 		if (uid > 0 && TeeJee.System.get_user_id_effective() == 0) {
-			// Running as root (via sudo/pkexec) but the original user is non-root.
-			// Use su to switch to the original user; su requires no password when called as root,
-			// unlike pkexec --user which triggers a polkit authentication dialog.
+			// Running as root (via sudo/pkexec/doas) but the original user is non-root.
+			// Use su to switch back to the original user; su from root needs no password.
 			string? user = TeeJee.System.get_username_from_uid(uid);
 			if (user != null) {
-				string display  = GLib.Environment.get_variable("DISPLAY") ?? "";
-				string xauth    = GLib.Environment.get_variable("XAUTHORITY") ?? "";
-				// sudo clears DBUS_SESSION_BUS_ADDRESS; find it via the systemd session socket.
+				string display   = GLib.Environment.get_variable("DISPLAY") ?? "";
+				string xauth     = GLib.Environment.get_variable("XAUTHORITY") ?? "";
 				string dbus_addr = GLib.Environment.get_variable("DBUS_SESSION_BUS_ADDRESS") ?? "";
+				// On systemd systems the session bus socket lives under /run/user/<uid>/bus.
 				if (dbus_addr.length == 0) {
 					string bus_path = "/run/user/%d/bus".printf(uid);
 					if (file_exists(bus_path)) {
 						dbus_addr = "unix:path=%s".printf(bus_path);
 					}
 				}
-				// Build the inner command with env vars set; use escape_single_quote so that
-				// any single quotes in paths (already escaped by callers) survive the su -c '...'
-				// single-quoted wrapper.
-				string inner = "DISPLAY=%s XAUTHORITY=%s DBUS_SESSION_BUS_ADDRESS=%s %s".printf(
-					escape_single_quote(display),
-					escape_single_quote(xauth),
-					escape_single_quote(dbus_addr),
-					escape_single_quote(command));
-				cmd = "su -s /bin/sh '%s' -c '%s'".printf(escape_single_quote(user), inner);
+				// Build the env exports that will be written verbatim to a temp script.
+				// IMPORTANT: only export variables that are non-empty.  An explicit empty
+				// assignment (e.g. DBUS_SESSION_BUS_ADDRESS=) breaks D-Bus-dependent apps
+				// (Thunar 2.x, etc.) on Alpine Linux where OpenRC provides no systemd socket.
+				var env_lines = new StringBuilder();
+				if (display.length > 0)
+					env_lines.append("export DISPLAY='%s'\n".printf(escape_single_quote(display)));
+				if (xauth.length > 0)
+					env_lines.append("export XAUTHORITY='%s'\n".printf(escape_single_quote(xauth)));
+				if (dbus_addr.length > 0)
+					env_lines.append("export DBUS_SESSION_BUS_ADDRESS='%s'\n".printf(escape_single_quote(dbus_addr)));
+
+				// Write env exports + the original command to a temp script.
+				// Using a script file avoids shell-quoting the command for su -c '...',
+				// which would double-escape any '\'' sequences already in the command.
+				// force_locale=false: leave locale for the file manager to decide.
+				string? inner_script = save_bash_script_temp(
+					env_lines.str + command, null, false, true);
+
+				if (inner_script != null) {
+					// The script path is always a clean /tmp/... path — safe to single-quote.
+					// Username goes last — standard su(1) syntax: su [opts] USER
+					cmd = "su -s /bin/sh -c '%s' '%s'".printf(
+						escape_single_quote(inner_script),
+						escape_single_quote(user));
+				}
 			}
 		}
 
@@ -383,6 +399,34 @@ namespace TeeJee.ProcessHelper{
 			}
 		}
 		return default_value;
+	}
+
+	// Scan all /proc/<pid>/environ entries owned by uid to find DBUS_SESSION_BUS_ADDRESS.
+	// This is needed on Alpine Linux (OpenRC, no systemd) where doas/sudo may clear the
+	// environment and the variable is not in the immediate parent process chain.
+	public string? find_dbus_for_uid(int uid) {
+		var procdir = GLib.File.new_for_path("/proc");
+		try {
+			var enumerator = procdir.enumerate_children(
+				FileAttribute.STANDARD_NAME, FileQueryInfoFlags.NOFOLLOW_SYMLINKS);
+			FileInfo? info;
+			while ((info = enumerator.next_file()) != null) {
+				if (info.get_file_type() != FileType.DIRECTORY) { continue; }
+				string name = info.get_name();
+				uint64 pid_val;
+				if (!uint64.try_parse(name, out pid_val)) { continue; }
+				if (get_euid_of_process((Pid) pid_val) != uid) { continue; }
+				string[]? penv = get_process_env((Pid) pid_val);
+				if (penv == null) { continue; }
+				string? addr = get_env(penv, "DBUS_SESSION_BUS_ADDRESS");
+				if (addr != null && addr.length > 0) {
+					return addr;
+				}
+			}
+		} catch (Error e) {
+			log_debug("find_dbus_for_uid: %s".printf(e.message));
+		}
+		return null;
 	}
 
 	public Pid[] get_process_children (Pid parent_pid){

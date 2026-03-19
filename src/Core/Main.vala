@@ -398,6 +398,19 @@ public class Main : GLib.Object{
 			}
 		}
 
+		// If DBUS_SESSION_BUS_ADDRESS was not in the parent process's environ (common
+		// on Alpine Linux with OpenRC where doas/sudo may clear the environment and the
+		// terminal may not export it), scan all processes owned by the user to find it.
+		if (GLib.Environment.get_variable("DBUS_SESSION_BUS_ADDRESS") == null) {
+			int uid = TeeJee.System.get_user_id();
+			if (uid > 0) {
+				string? addr = TeeJee.ProcessHelper.find_dbus_for_uid(uid);
+				if (addr != null) {
+					GLib.Environment.set_variable("DBUS_SESSION_BUS_ADDRESS", addr, true);
+				}
+			}
+		}
+
 		string xdg_runtime_dir = TeeJee.ProcessHelper.get_env(user_env, "XDG_RUNTIME_DIR");
 		string wayland_display = TeeJee.ProcessHelper.get_env(user_env, "WAYLAND_DISPLAY");
 
