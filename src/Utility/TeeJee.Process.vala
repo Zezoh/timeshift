@@ -212,7 +212,7 @@ namespace TeeJee.ProcessHelper{
 
 		if (uid > 0 && TeeJee.System.get_user_id_effective() == 0) {
 			// Running as root (via sudo/pkexec/doas) but the original user is non-root.
-			// Use su to switch back to the original user; su from root needs no password.
+			// Use su to switch back; su from root needs no password.
 			string? user = TeeJee.System.get_username_from_uid(uid);
 			if (user != null) {
 				string display   = GLib.Environment.get_variable("DISPLAY") ?? "";
@@ -225,7 +225,8 @@ namespace TeeJee.ProcessHelper{
 						dbus_addr = "unix:path=%s".printf(bus_path);
 					}
 				}
-				// Build the env exports that will be written verbatim to a temp script.
+
+				// Build the env exports that will be fed to su via a heredoc.
 				// IMPORTANT: only export variables that are non-empty.  An explicit empty
 				// assignment (e.g. DBUS_SESSION_BUS_ADDRESS=) breaks D-Bus-dependent apps
 				// (Thunar 2.x, etc.) on Alpine Linux where OpenRC provides no systemd socket.
@@ -237,20 +238,19 @@ namespace TeeJee.ProcessHelper{
 				if (dbus_addr.length > 0)
 					env_lines.append("export DBUS_SESSION_BUS_ADDRESS='%s'\n".printf(escape_single_quote(dbus_addr)));
 
-				// Write env exports + the original command to a temp script.
-				// Using a script file avoids shell-quoting the command for su -c '...',
-				// which would double-escape any '\'' sequences already in the command.
-				// force_locale=false: leave locale for the file manager to decide.
-				string? inner_script = save_bash_script_temp(
-					env_lines.str + command, null, false, true);
-
-				if (inner_script != null) {
-					// The script path is always a clean /tmp/... path — safe to single-quote.
-					// Username goes last — standard su(1) syntax: su [opts] USER
-					cmd = "su -s /bin/sh -c '%s' '%s'".printf(
-						escape_single_quote(inner_script),
-						escape_single_quote(user));
-				}
+				// Use a heredoc to feed commands to su via stdin.
+				// This avoids creating a temp script that alice must execute:
+				//   - TEMP_DIR is chmod 0750 (root-only entry)
+				//   - scripts are chmod 0744 (root-only execute)
+				// The single-quoted heredoc delimiter ('TIMESHIFT_END') tells the
+				// OUTER shell (running as root) to pass the body completely verbatim —
+				// no variable expansion, no backslash processing.  The body is piped
+				// to su's stdin; alice's sh then reads and interprets the commands
+				// normally.  command is already valid sh (callers pass things like
+				// "gio open 'uri'" or "thunar '/path'") so no re-quoting is needed.
+				string inner = env_lines.str + command;
+				cmd = "su -s /bin/sh '%s' << 'TIMESHIFT_END'\n%s\nTIMESHIFT_END".printf(
+					escape_single_quote(user), inner);
 			}
 		}
 

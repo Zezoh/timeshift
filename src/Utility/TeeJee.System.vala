@@ -62,6 +62,27 @@ namespace TeeJee.System{
 			}
 		}
 
+		// Last-resort fallback for doas configurations that do not export DOAS_USER:
+		// stat the XAUTHORITY file to find the display owner's UID.
+		// setup_env() copies the user's XAUTHORITY path from their process environment,
+		// so this file is always owned by the real (non-root) user.
+		if (get_user_id_effective() == 0) {
+			string? xauth = GLib.Environment.get_variable("XAUTHORITY");
+			if (xauth != null && xauth.length > 0) {
+				try {
+					var xf = File.new_for_path(xauth);
+					var xi = xf.query_info("unix::uid", FileQueryInfoFlags.NONE);
+					int xuid = (int) xi.get_attribute_uint32("unix::uid");
+					if (xuid > 0) {
+						log_debug("get_user_id: detected uid %d from XAUTHORITY file owner".printf(xuid));
+						return xuid;
+					}
+				} catch (Error e) {
+					log_debug("get_user_id: failed to stat XAUTHORITY '%s': %s".printf(xauth, e.message));
+				}
+			}
+		}
+
 		return get_user_id_effective(); // normal user
 	}
 
@@ -100,7 +121,10 @@ namespace TeeJee.System{
 	public static bool xdg_open (string file){
 		// When running as a GTK application, use GLib's AppInfo which leverages
 		// the existing display/D-Bus session. Works on both X11 and Wayland.
-		if (GTK_INITIALIZED) {
+		// NEVER use AppInfo when running as root: it would launch the target app
+		// (browser, text editor) as root, which modern apps refuse or warn about.
+		bool running_as_root = (TeeJee.System.get_user_id_effective() == 0);
+		if (!running_as_root && GTK_INITIALIZED) {
 			try {
 				// Ensure we have a proper URI (URIs start with a scheme like "http://" or "file://")
 				string uri = (file.index_of("://") >= 0) ? file : GLib.File.new_for_path(file).get_uri();
@@ -137,15 +161,14 @@ namespace TeeJee.System{
 		string uri = GLib.File.new_for_path(dir_path).get_uri();
 		string escaped = escape_single_quote(dir_path);
 
-		// When running as root on behalf of a real user (sudo/pkexec/doas), skip
-		// GLib AppInfo: it would launch the file manager as ROOT using root's MIME
-		// configuration, which is often unconfigured on Alpine.  The root process's
-		// DBUS_SESSION_BUS_ADDRESS may also be refused by the user's session bus
-		// policy, causing a silent exception.  Run as the actual user instead.
-		bool root_for_user = (TeeJee.System.get_user_id_effective() == 0
-		                      && TeeJee.System.get_user_id() > 0);
+		// When running as root on behalf of a real user (sudo/pkexec/doas), or any
+		// time we are root, skip GLib AppInfo.  AppInfo inherits the current euid,
+		// so it would launch the file manager as root.  Modern file managers
+		// (Nautilus 42+, Thunar 4.x, etc.) refuse to run as root and print warnings.
+		// Run the file manager as the actual user via exec_user_async instead.
+		bool running_as_root = (TeeJee.System.get_user_id_effective() == 0);
 
-		if (!root_for_user && GTK_INITIALIZED) {
+		if (!running_as_root && GTK_INITIALIZED) {
 			try {
 				Gdk.AppLaunchContext? ctx = null;
 				var display = Gdk.Display.get_default();
