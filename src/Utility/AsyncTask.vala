@@ -421,7 +421,7 @@ public abstract class AsyncTask : GLib.Object{
 				return TeeJee.Misc.format_duration(remaining);
 			}
 			else{
-				return "???";
+				return _("Estimating...");
 			}
 		}
 	}

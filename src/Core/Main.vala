@@ -4037,6 +4037,10 @@ public class Main : GLib.Object{
 
 		Main.first_snapshot_size = task.total_size;
 		Main.first_snapshot_count = task.count_created;
+		if ((Main.first_snapshot_count <= 0) && (task.status_line_count > 0)) {
+			// fallback for rsync variants where created-file counters are not emitted as expected
+			Main.first_snapshot_count = task.status_line_count;
+		}
 		if ((task.total_size == 0) && (sys_root != null)) {
 			Main.first_snapshot_size = sys_root.used_bytes;
 		}
@@ -4499,7 +4503,6 @@ public class Main : GLib.Object{
 		}
 	}
 }
-
 
 
 
