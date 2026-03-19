@@ -215,9 +215,10 @@ namespace TeeJee.ProcessHelper{
 			// Use su to switch back; su from root needs no password.
 			string? user = TeeJee.System.get_username_from_uid(uid);
 			if (user != null) {
-				string display   = GLib.Environment.get_variable("DISPLAY") ?? "";
-				string xauth     = GLib.Environment.get_variable("XAUTHORITY") ?? "";
-				string dbus_addr = GLib.Environment.get_variable("DBUS_SESSION_BUS_ADDRESS") ?? "";
+				string display        = GLib.Environment.get_variable("DISPLAY") ?? "";
+				string xauth          = GLib.Environment.get_variable("XAUTHORITY") ?? "";
+				string dbus_addr      = GLib.Environment.get_variable("DBUS_SESSION_BUS_ADDRESS") ?? "";
+				string wayland_disp   = GLib.Environment.get_variable("WAYLAND_DISPLAY") ?? "";
 				// On systemd systems the session bus socket lives under /run/user/<uid>/bus.
 				if (dbus_addr.length == 0) {
 					string bus_path = "/run/user/%d/bus".printf(uid);
@@ -237,6 +238,15 @@ namespace TeeJee.ProcessHelper{
 					env_lines.append("export XAUTHORITY='%s'\n".printf(escape_single_quote(xauth)));
 				if (dbus_addr.length > 0)
 					env_lines.append("export DBUS_SESSION_BUS_ADDRESS='%s'\n".printf(escape_single_quote(dbus_addr)));
+				// Export Wayland session vars so gio open / the file manager can connect
+				// to the Wayland compositor when running without an X11 display.
+				if (wayland_disp.length > 0)
+					env_lines.append("export WAYLAND_DISPLAY='%s'\n".printf(escape_single_quote(wayland_disp)));
+				// Always give the subprocess the correct XDG_RUNTIME_DIR for the real user
+				// (/run/user/<uid>), not root's (/run/user/0) which setup_env() sets for itself.
+				string xdg_runtime = "/run/user/%d".printf(uid);
+				if (file_exists(xdg_runtime))
+					env_lines.append("export XDG_RUNTIME_DIR='%s'\n".printf(xdg_runtime));
 
 				// Use a heredoc to feed commands to su via stdin.
 				// This avoids creating a temp script that the unprivileged user must execute:
@@ -248,9 +258,11 @@ namespace TeeJee.ProcessHelper{
 				// to su's stdin; the target user's sh then reads and interprets the commands
 				// normally.  command is already valid sh (callers pass things like
 				// "gio open 'uri'" or "thunar '/path'") so no re-quoting is needed.
+				// Use a random delimiter so no path substring can accidentally close the heredoc.
+				string delim = "TIMESHIFT_%s".printf(random_string().up());
 				string inner = env_lines.str + command;
-				cmd = "su -s /bin/sh '%s' << 'TIMESHIFT_END'\n%s\nTIMESHIFT_END".printf(
-					escape_single_quote(user), inner);
+				cmd = "su -s /bin/sh '%s' << '%s'\n%s\n%s".printf(
+					escape_single_quote(user), delim, inner, delim);
 			}
 		}
 
@@ -368,8 +380,27 @@ namespace TeeJee.ProcessHelper{
 	public Pid get_user_process() {
 		Pid ppid = -1;
 		int targetUser = TeeJee.System.get_user_id();
-		int user = 0;
 
+		// When running as root but unable to identify the real user (e.g. doas
+		// without DOAS_USER exported), the normal loop would match init (pid=1,
+		// uid=0) and return its nearly-empty environment, making setup_env() a
+		// no-op.  Instead, walk the entire parent chain and return the HIGHEST
+		// (oldest) non-root ancestor — that is the user's session process or
+		// shell, which carries the original DISPLAY/XAUTHORITY/WAYLAND_DISPLAY
+		// environment that setup_env() needs to copy.
+		if (targetUser == 0 && TeeJee.System.get_user_id_effective() == 0) {
+			Pid best = -1;
+			do {
+				ppid = get_process_parent(ppid);
+				int u = get_euid_of_process(ppid);
+				if (u > 0) {
+					best = ppid;
+				}
+			} while (ppid > 1);
+			return best;
+		}
+
+		int user = 0;
 		do {
 			ppid = get_process_parent(ppid);
 			user = get_euid_of_process (ppid);
