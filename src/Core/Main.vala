@@ -2582,7 +2582,7 @@ public class Main : GLib.Object{
 			sh += "echo '" + _("System will reboot after files are restored") + "'\n";
 		}
 		sh += "echo ''\n";
-		sh += "sleep 3s\n";
+		sh += "sleep 3\n";
 
 		// run rsync ---------------------------------------
 
@@ -2733,7 +2733,7 @@ public class Main : GLib.Object{
 		
 		// sync file systems
 		sh += "echo '" + _("Syncing file systems...") + "' \n";
-		sh += "sync ; sleep 10s; \n";
+		sh += "sync ; sleep 10; \n";
 		sh += "echo '' \n";
 		
 		if (!restore_current_system){
@@ -2758,7 +2758,7 @@ public class Main : GLib.Object{
 		if (restore_current_system){
 			sh += "echo '' \n";
 			sh += "echo '" + _("Rebooting system...") + "' \n";
-			sh += "sleep 5s \n";
+			sh += "sleep 5 \n";
 			sh += "reboot -f \n";
 			//sh_reboot += "shutdown -r now \n";
 		}
@@ -4398,7 +4398,7 @@ public class Main : GLib.Object{
 			
 			//boot
 			if (schedule_boot){
-				CronTab.add_script_file("timeshift-boot", "d", "@reboot root sleep 10m && timeshift --create --scripted --tags B", stop_cron_emails);
+				CronTab.add_script_file("timeshift-boot", "d", "@reboot root sleep 600 && timeshift --create --scripted --tags B", stop_cron_emails);
 			}
 			else{
 				CronTab.remove_script_file("timeshift-boot", "d");
