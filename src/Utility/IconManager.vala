@@ -77,7 +77,13 @@ public class IconManager : GLib.Object {
 	public static void refresh_icon_theme(){
 
 		if (!GTK_INITIALIZED) { return; }
-		
+
+		// search_paths may be null if init() has not been called yet
+		// (e.g. when the admin-access dialog is shown before Main is created).
+		if (search_paths == null) {
+			search_paths = new Gee.ArrayList<string>();
+		}
+
 		theme = Gtk.IconTheme.get_default();
 		foreach(string path in search_paths){
 			theme.append_search_path(path);
@@ -90,13 +96,24 @@ public class IconManager : GLib.Object {
 
 		if (icon_name.length == 0){ return null; }
 
+		// Ensure search_paths is initialized even before init() is called.
+		if (search_paths == null) {
+			search_paths = new Gee.ArrayList<string>();
+		}
+
 		if (!use_hardcoded){
-			try {
-				pixbuf = theme.load_icon_for_scale(icon_name, icon_size, scale, Gtk.IconLookupFlags.FORCE_SIZE);
-				if (pixbuf != null){ return pixbuf; }
+			// Lazily initialize theme if it is null (e.g. before init() is called).
+			if (theme == null) {
+				refresh_icon_theme();
 			}
-			catch (Error e) {
-				log_debug(e.message);
+			if (theme != null) {
+				try {
+					pixbuf = theme.load_icon_for_scale(icon_name, icon_size, scale, Gtk.IconLookupFlags.FORCE_SIZE);
+					if (pixbuf != null){ return pixbuf; }
+				}
+				catch (Error e) {
+					log_debug(e.message);
+				}
 			}
 		}
 
@@ -129,6 +146,8 @@ public class IconManager : GLib.Object {
 			pix = lookup(GENERIC_ICON_IMAGE_MISSING, icon_size, symbolic, use_hardcoded, image.scale_factor);
 		}
 
+		if (pix == null){ return image; }
+
         Cairo.Surface surf = Gdk.cairo_surface_create_from_pixbuf(pix, image.scale_factor, null);
 
         image.set_from_surface(surf);
@@ -145,6 +164,8 @@ public class IconManager : GLib.Object {
             pix = lookup(GENERIC_ICON_IMAGE_MISSING, icon_size, symbolic, use_hardcoded, scale);
         }
 
+        if (pix == null){ return null; }
+
         return Gdk.cairo_surface_create_from_pixbuf(pix, scale, null);
     }
 
@@ -153,6 +174,8 @@ public class IconManager : GLib.Object {
 		Gdk.Pixbuf? pixbuf = null;
 
 		if (gicon == null){ return null; }
+		if (theme == null){ refresh_icon_theme(); }
+		if (theme == null){ return null; }
 		
 		try {
 			var icon_info = theme.lookup_by_gicon(gicon, icon_size, Gtk.IconLookupFlags.FORCE_SIZE);
@@ -170,6 +193,8 @@ public class IconManager : GLib.Object {
 	public static Gdk.Pixbuf? add_emblem (Gdk.Pixbuf pixbuf, string icon_name, int emblem_size, bool emblem_symbolic, Gtk.CornerType corner_type) {
 
 		if (icon_name.length == 0){ return pixbuf; }
+		if (theme == null){ refresh_icon_theme(); }
+		if (theme == null){ return pixbuf; }
 
         Gdk.Pixbuf? emblem = null;
 

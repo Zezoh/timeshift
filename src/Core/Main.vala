@@ -386,6 +386,18 @@ public class Main : GLib.Object{
 			}
 		}
 
+		// If XAUTHORITY was not in the user's process environ (common on Alpine/minimal
+		// setups where ~/.Xauthority is used implicitly), derive it from the user's home dir.
+		if (GLib.Environment.get_variable("XAUTHORITY") == null) {
+			string user_home = TeeJee.ProcessHelper.get_env(user_env, "HOME") ?? "";
+			if (user_home.length > 0) {
+				string xauth_default = user_home + "/.Xauthority";
+				if (file_exists(xauth_default)) {
+					GLib.Environment.set_variable("XAUTHORITY", xauth_default, true);
+				}
+			}
+		}
+
 		string xdg_runtime_dir = TeeJee.ProcessHelper.get_env(user_env, "XDG_RUNTIME_DIR");
 		string wayland_display = TeeJee.ProcessHelper.get_env(user_env, "WAYLAND_DISPLAY");
 

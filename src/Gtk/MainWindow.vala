@@ -663,7 +663,7 @@ class MainWindow : Gtk.Window{
 			else{
 				gtk_messagebox(
 					_("Snapshot Location Not Set"),
-					_("Please configure a snapshot location in Settings (Settings > Location) before browsing."),
+					_("Please configure a snapshot location in Settings before browsing."),
 					this, false);
 			}
 			return;

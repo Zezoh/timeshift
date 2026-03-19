@@ -1,27 +1,46 @@
 #!/bin/sh
+# timeshift-launcher – run timeshift-gtk with elevated privileges.
+# Supports pkexec, doas (Alpine Linux), sudo, and su.
 
 app_command='timeshift-gtk'
 
+# Already running as root — execute directly.
 if [ "$(id -u)" -eq 0 ]; then
-	# user is admin
-	${app_command}
-else
-	# user is not admin
-	if echo $- | grep "i" >/dev/null 2>&1; then
-		# script is running in interactive mode
-		su - -c "${app_command}"
-	else
-		# script is running in non-interactive mode
-		if command -v pkexec >/dev/null 2>&1; then
-			pkexec "${app_command}"
-		elif command -v doas >/dev/null 2>&1; then
-			doas "${app_command}"
-		elif command -v sudo >/dev/null 2>&1; then
-			x-terminal-emulator -e "sudo ${app_command}"
-		elif command -v su >/dev/null 2>&1; then
-			x-terminal-emulator -e "su - -c '${app_command}'"
-		else
-			echo 'Command must be run as root user: ${app_command}'
-		fi
-	fi
+	exec "${app_command}" "$@"
 fi
+
+# X11: grant the root user access to the current display so that
+# privilege-escalation tools that strip XAUTHORITY still work.
+if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1; then
+	xhost +si:localuser:root 2>/dev/null || true
+fi
+
+# Try privilege-escalation tools in preference order.
+# pkexec (polkit) handles display forwarding itself.
+if command -v pkexec >/dev/null 2>&1; then
+	exec pkexec "${app_command}" "$@"
+fi
+
+if command -v doas >/dev/null 2>&1; then
+	# doas may reset the environment; forward display variables explicitly
+	# so the app can connect to the display on both X11 and Wayland.
+	exec doas env \
+		"DISPLAY=${DISPLAY:-}" \
+		"XAUTHORITY=${XAUTHORITY:-}" \
+		"WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}" \
+		"XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}" \
+		"${app_command}" "$@"
+fi
+
+if command -v sudo >/dev/null 2>&1; then
+	# -E preserves the caller's environment (DISPLAY, XAUTHORITY, etc.).
+	exec sudo -E "${app_command}" "$@"
+fi
+
+if command -v su >/dev/null 2>&1; then
+	# Avoid su -l which resets the environment; pass display vars explicitly.
+	exec su -c "DISPLAY='${DISPLAY:-}' XAUTHORITY='${XAUTHORITY:-}' WAYLAND_DISPLAY='${WAYLAND_DISPLAY:-}' XDG_RUNTIME_DIR='${XDG_RUNTIME_DIR:-}' ${app_command}"
+fi
+
+echo "Error: could not find pkexec, doas, sudo, or su to elevate privileges." >&2
+exit 1
