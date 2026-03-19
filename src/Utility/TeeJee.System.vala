@@ -125,7 +125,7 @@ namespace TeeJee.System{
 		if (xdg_open_try_first && xdgAvailable){
 			//try using xdg-open
 			string cmd = "xdg-open '%s'".printf(escaped_dir_path);
-			status = exec_script_async (cmd);
+			status = exec_user_async (cmd);
 			return (status == 0);
 		}
 
@@ -136,7 +136,7 @@ namespace TeeJee.System{
 			}
 
 			string cmd = "%s '%s'".printf(app_name, escaped_dir_path);
-			status = exec_script_async (cmd);
+			status = exec_user_async (cmd);
 
 			if(status == 0) {
 				return true;
@@ -146,7 +146,7 @@ namespace TeeJee.System{
 		if (!xdg_open_try_first && xdgAvailable){
 			//try using xdg-open
 			string cmd = "xdg-open '%s'".printf(escaped_dir_path);
-			status = exec_script_async (cmd);
+			status = exec_user_async (cmd);
 			return (status == 0);
 		}
 
