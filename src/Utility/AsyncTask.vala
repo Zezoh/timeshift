@@ -138,7 +138,7 @@ public abstract class AsyncTask : GLib.Object{
 			    working_dir, // working dir
 			    spawn_args,  // argv
 			    spawn_env,   // environment
-			    SpawnFlags.SEARCH_PATH,
+			    SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD,
 			    null,        // child_setup
 			    out child_pid,
 			    out input_fd,
