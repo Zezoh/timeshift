@@ -144,10 +144,15 @@ public abstract class AsyncTask : GLib.Object{
 			    out input_fd,
 			    out output_fd,
 			    out error_fd);
-			ChildWatch.add(child_pid, (pid, status_code) => {
-				child_exited = true;
-				try_finish();
-			});
+			try {
+				// child-watch callbacks depend on a running main loop in the
+				// owning context. Snapshot/restore tasks can run in worker
+				// threads, so use a dedicated waiter thread for portability.
+				new Thread<void>.try ("async-task-child-waiter", wait_for_child_exit);
+			} catch (GLib.Error e) {
+				log_error ("AsyncTask.begin():create_thread:wait_for_child_exit()");
+				log_error (e.message);
+			}
 
 			log_debug("AsyncTask: child_pid: %d".printf(child_pid));
 			
@@ -267,6 +272,15 @@ public abstract class AsyncTask : GLib.Object{
 		if (child_exited && !stdout_is_open && !stderr_is_open){
 			finish();
 		}
+	}
+
+	private void wait_for_child_exit() {
+		int wait_status = 0;
+		if (child_pid > 0){
+			Posix.waitpid(child_pid, out wait_status, 0);
+		}
+		child_exited = true;
+		try_finish();
 	}
 
 	public void write_stdin(string line){

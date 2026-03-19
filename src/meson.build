@@ -118,4 +118,9 @@ install_data(
   install_dir : join_paths(get_option('datadir'), 'applications')
 )
 
+install_data(
+  sources : '../icons/timeshift.png',
+  install_dir : join_paths(get_option('datadir'), 'pixmaps')
+)
+
 install_subdir('share', install_dir : '')
