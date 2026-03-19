@@ -239,13 +239,13 @@ namespace TeeJee.ProcessHelper{
 					env_lines.append("export DBUS_SESSION_BUS_ADDRESS='%s'\n".printf(escape_single_quote(dbus_addr)));
 
 				// Use a heredoc to feed commands to su via stdin.
-				// This avoids creating a temp script that alice must execute:
+				// This avoids creating a temp script that the unprivileged user must execute:
 				//   - TEMP_DIR is chmod 0750 (root-only entry)
 				//   - scripts are chmod 0744 (root-only execute)
 				// The single-quoted heredoc delimiter ('TIMESHIFT_END') tells the
 				// OUTER shell (running as root) to pass the body completely verbatim —
 				// no variable expansion, no backslash processing.  The body is piped
-				// to su's stdin; alice's sh then reads and interprets the commands
+				// to su's stdin; the target user's sh then reads and interprets the commands
 				// normally.  command is already valid sh (callers pass things like
 				// "gio open 'uri'" or "thunar '/path'") so no re-quoting is needed.
 				string inner = env_lines.str + command;
