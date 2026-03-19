@@ -300,6 +300,13 @@ public class RsyncTask : AsyncTask{
 
 		prg_count = 0;
 		prg_count_total = file_line_count(log_file) ?? 0;
+		if (prg_count_total <= 0){
+			log_debug("RsyncTask: parse_log(): no lines to parse");
+			if (dos_changes != null){
+				try { dos_changes.close(); } catch (Error ignored) {}
+			}
+			return list;
+		}
 
 		try {
 			string line;
@@ -418,6 +425,7 @@ public class RsyncTask : AsyncTask{
 		}
 
 		if (dos_changes != null){
+			try { dos_changes.close(); } catch (Error ignored) {}
 			// archive the raw log file
 			log_msg("Archiving: %s".printf(log_file_path));
 			file_gzip(log_file_path);
