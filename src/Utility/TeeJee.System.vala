@@ -98,6 +98,24 @@ namespace TeeJee.System{
 	// open -----------------------------
 
 	public static bool xdg_open (string file){
+		// When running as a GTK application, use GLib's AppInfo which leverages
+		// the existing display/D-Bus session. Works on both X11 and Wayland.
+		if (GTK_INITIALIZED) {
+			try {
+				// Ensure we have a proper URI (URIs start with a scheme like "http://" or "file://")
+				string uri = (file.index_of("://") >= 0) ? file : GLib.File.new_for_path(file).get_uri();
+				Gdk.AppLaunchContext? ctx = null;
+				var display = Gdk.Display.get_default();
+				if (display != null) {
+					ctx = display.get_app_launch_context();
+				}
+				GLib.AppInfo.launch_default_for_uri(uri, ctx);
+				return true;
+			} catch (Error e) {
+				log_debug("xdg_open AppInfo: %s".printf(e.message));
+			}
+		}
+
 		if (!TeeJee.ProcessHelper.cmd_exists("xdg-open")) {
 			return false;
 		}
@@ -111,6 +129,31 @@ namespace TeeJee.System{
 
 		/* Tries to open the given directory in a file manager */
 
+		if (dir_path.length == 0) {
+			log_debug("exo_open_folder: path is empty");
+			return false;
+		}
+
+		// When running as a GTK application, use GLib's AppInfo which leverages
+		// the existing display/D-Bus session. This is the most reliable approach
+		// and works on both X11 and Wayland without requiring a subprocess.
+		if (GTK_INITIALIZED) {
+			try {
+				string uri = GLib.File.new_for_path(dir_path).get_uri();
+				Gdk.AppLaunchContext? ctx = null;
+				var display = Gdk.Display.get_default();
+				if (display != null) {
+					ctx = display.get_app_launch_context();
+				}
+				GLib.AppInfo.launch_default_for_uri(uri, ctx);
+				return true;
+			} catch (Error e) {
+				log_debug("exo_open_folder AppInfo: %s".printf(e.message));
+			}
+		}
+
+		// Subprocess fallback: used in CLI mode (GTK_INITIALIZED == false) or if AppInfo failed.
+		// exec_user_async handles user-switching when timeshift runs as root (via sudo/pkexec).
 		/*
 		xdg-open is a desktop-independent tool for configuring the default applications of a user.
 		Inside a desktop environment (e.g. GNOME, KDE, Xfce), xdg-open simply passes the arguments

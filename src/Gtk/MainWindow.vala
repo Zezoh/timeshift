@@ -76,7 +76,13 @@ class MainWindow : Gtk.Window{
         this.modal = true;
         this.set_default_size (def_width, def_height);
 		this.delete_event.connect(on_delete_event);
-		this.icon = IconManager.lookup("timeshift",16);
+		// Set icon by name first (lets the WM pick the right size from the hicolor theme),
+		// then fall back to loading a pixbuf in case the theme lookup fails.
+		this.icon_name = "timeshift";
+		var window_icon = IconManager.lookup("timeshift", 16);
+		if (window_icon != null) {
+			this.icon = window_icon;
+		}
 
 	    //vbox_main
         vbox_main = new Gtk.Box(Orientation.VERTICAL, 0);
@@ -643,13 +649,22 @@ class MainWindow : Gtk.Window{
 		
 		if (sel.count_selected_rows() == 0){
 			
-			var f = File.new_for_path(App.repo.snapshots_path);
+			var snapshots_path = App.repo.snapshots_path;
+			var mount_path = App.repo.mount_path;
+
+			var f = File.new_for_path(snapshots_path);
 			
 			if (f.query_exists()){
-				exo_open_folder(App.repo.snapshots_path);
+				exo_open_folder(snapshots_path);
+			}
+			else if (mount_path.length > 0){
+				exo_open_folder(mount_path);
 			}
 			else{
-				exo_open_folder(App.repo.mount_path);
+				gtk_messagebox(
+					_("Snapshot Location Not Set"),
+					_("Please configure a snapshot location in Settings (Settings > Location) before browsing."),
+					this, false);
 			}
 			return;
 		}
