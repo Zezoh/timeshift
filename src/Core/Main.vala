@@ -1689,8 +1689,16 @@ public class Main : GLib.Object{
 		stdout.printf("\r");
 		stdout.flush();
 
-		if (task.total_size == 0){
-			log_error(_("rsync returned an error"));
+		// Check rsync exit code: 0 = success, 24 = some files vanished during
+		// transfer (normal for live system backups where processes create/delete
+		// files while rsync runs).  The old check (total_size == 0) relied on
+		// parsing a regex from rsync's stdout which can silently fail on Alpine
+		// Linux / musl / ARM64 due to locale differences or memory-ordering of
+		// the plain int64 field, causing info.json to never be written.
+		log_debug("rsync: exit_code=%d, total_size=%lld".printf(task.exit_code, task.total_size));
+
+		if (task.exit_code != 0 && task.exit_code != 24){
+			log_error(_("rsync returned an error") + " (exit code: %d)".printf(task.exit_code));
 			log_error(_("Failed to create new snapshot"));
 			return null;
 		}
@@ -1715,6 +1723,11 @@ public class Main : GLib.Object{
 		var snapshot = Snapshot.write_control_file(
 			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
 			initial_tags, cmd_comments, fcount, false, false, repo);
+
+		if (snapshot == null){
+			log_error(_("Failed to create new snapshot"));
+			return null;
+		}
 
 		set_tags(snapshot); // set_tags() will update the control file
 
@@ -1802,6 +1815,11 @@ public class Main : GLib.Object{
 		var snapshot = Snapshot.write_control_file(
 			snapshot_path, dt_created, sys_uuid, current_distro.full_name(),
 			initial_tags, cmd_comments, 0, true, false, repo);
+
+		if (snapshot == null){
+			log_error(_("Failed to create new snapshot"));
+			return null;
+		}
 
 		// write subvolume info
 		foreach(var subvol in sys_subvolumes.values){
@@ -2292,9 +2310,10 @@ public class Main : GLib.Object{
 
 		// Alpine Linux (e.g., Raspberry Pi) uses the RPi/U-Boot firmware and
 		// does not use GRUB at all; skip every GRUB step to avoid failures.
+		// Always update initramfs (mkinitfs) since Alpine relies on it for boot.
 		if (op_dist_type == "alpine"){
 			reinstall_grub2 = false;
-			update_initramfs = mirror_system; // run mkinitfs only when cloning
+			update_initramfs = true;
 			update_grub = false;
 		}
 		else if (mirror_system){
@@ -2574,7 +2593,7 @@ public class Main : GLib.Object{
 			sh += "echo '" + _("System will reboot after files are restored") + "'\n";
 		}
 		sh += "echo ''\n";
-		sh += "sleep 3s\n";
+		sh += "sleep 3\n";
 
 		// run rsync ---------------------------------------
 
@@ -2725,7 +2744,7 @@ public class Main : GLib.Object{
 		
 		// sync file systems
 		sh += "echo '" + _("Syncing file systems...") + "' \n";
-		sh += "sync ; sleep 10s; \n";
+		sh += "sync ; sleep 10; \n";
 		sh += "echo '' \n";
 		
 		if (!restore_current_system){
@@ -2750,7 +2769,7 @@ public class Main : GLib.Object{
 		if (restore_current_system){
 			sh += "echo '' \n";
 			sh += "echo '" + _("Rebooting system...") + "' \n";
-			sh += "sleep 5s \n";
+			sh += "sleep 5 \n";
 			sh += "reboot -f \n";
 			//sh_reboot += "shutdown -r now \n";
 		}
@@ -4390,7 +4409,7 @@ public class Main : GLib.Object{
 			
 			//boot
 			if (schedule_boot){
-				CronTab.add_script_file("timeshift-boot", "d", "@reboot root sleep 10m && timeshift --create --scripted --tags B", stop_cron_emails);
+				CronTab.add_script_file("timeshift-boot", "d", "@reboot root sleep 600 && timeshift --create --scripted --tags B", stop_cron_emails);
 			}
 			else{
 				CronTab.remove_script_file("timeshift-boot", "d");
